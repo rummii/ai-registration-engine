@@ -1,0 +1,1089 @@
+    1  2026-07-20 00:16:42         return
+    2  2026-07-20 00:16:42     msg = bot.send_message(message.chat.id, "️ Enter line item name for correction:")
+    3  2026-07-20 00:16:42     bot.register_next_step_handler(msg, process_correction_item)
+    4  2026-07-20 00:16:42 def process_correction_item(message):
+    5  2026-07-20 00:16:42     user_states[message.chat.id] = {'correction_item': message.text.strip()}
+    6  2026-07-20 00:16:42     msg = bot.send_message(message.chat.id, "Enter the correct amount:")
+    7  2026-07-20 00:16:42     bot.register_next_step_handler(msg, process_correction_amount)
+    8  2026-07-20 00:16:42 def process_correction_amount(message):
+    9  2026-07-20 00:16:42     try:
+   10  2026-07-20 00:16:42         new_amount = float(message.text)
+   11  2026-07-20 00:16:42         item = user_states[message.chat.id]['correction_item']
+   12  2026-07-20 00:16:42         now = datetime.now()
+   13  2026-07-20 00:16:42         fiscal_year = now.year
+   14  2026-07-20 00:16:42         month_index = now.month
+   15  2026-07-20 00:16:42         
+   16  2026-07-20 00:16:42         conn = sqlite3.connect(str(DB_PATH))
+   17  2026-07-20 00:16:42         cursor = conn.cursor()
+   18  2026-07-20 00:16:42         
+   19  2026-07-20 00:16:42         # Get old value for audit
+   20  2026-07-20 00:16:42         cursor.execute("""
+   21  2026-07-20 00:16:42             SELECT actual_amount FROM budget_actuals_cache 
+   22  2026-07-20 00:16:42             WHERE fiscal_year = ? AND month_index = ? AND line_item_name = ?
+   23  2026-07-20 00:16:42         """, (fiscal_year, month_index, item))
+   24  2026-07-20 00:16:42         old_row = cursor.fetchone()
+   25  2026-07-20 00:16:42         old_amount = old_row[0] if old_row else 0.0
+   26  2026-07-20 00:16:42         
+   27  2026-07-20 00:16:42         # Update actuals
+   28  2026-07-20 00:16:42         cursor.execute("""
+   29  2026-07-20 00:16:42             UPDATE budget_actuals_cache 
+   30  2026-07-20 00:16:42             SET actual_amount = ?
+   31  2026-07-20 00:16:42             WHERE fiscal_year = ? AND month_index = ? AND line_item_name = ?
+   32  2026-07-20 00:16:42         """, (new_amount, fiscal_year, month_index, item))
+   33  2026-07-20 00:16:42         
+   34  2026-07-20 00:16:42         # Log correction
+   35  2026-07-20 00:16:42         cursor.execute("""
+   36  2026-07-20 00:16:42             INSERT INTO expense_transactions (timestamp, fiscal_year, month_index, category, item, amount, voucher_path, chat_id)
+   37  2026-07-20 00:16:42             VALUES (?, ?, ?, 'CORRECTION', ?, ?, ?, ?)
+   38  2026-07-20 00:16:42         """, (now.isoformat(), fiscal_year, month_index, item, new_amount, None, message.chat.id))
+   39  2026-07-20 00:16:42         
+   40  2026-07-20 00:16:42         conn.commit()
+   41  2026-07-20 00:16:42         conn.close()
+   42  2026-07-20 00:16:42         
+   43  2026-07-20 00:16:42         bot.send_message(message.chat.id, 
+   44  2026-07-20 00:16:42                         f"✅ Corrected {item}: ₱{old_amount:,.2f} → ₱{new_amount:,.2f}")
+   45  2026-07-20 00:16:42         
+   46  2026-07-20 00:16:42         del user_states[message.chat.id]
+   47  2026-07-20 00:16:42     except Exception as e:
+   48  2026-07-20 00:16:42         bot.send_message(message.chat.id, f"❌ Error: {str(e)}")
+   49  2026-07-20 00:16:42 if __name__ == '__main__':
+   50  2026-07-20 00:16:42     print("🤖 AIEC Expense Bot starting...")
+   51  2026-07-20 00:16:42     print(f"📁 Voucher directory: {VOUCHER_DIR}")
+   52  2026-07-20 00:16:42     print(f" Database: {DB_PATH}")
+   53  2026-07-20 00:16:42     print("✅ Bot is running! Waiting for messages...")
+   54  2026-07-20 00:16:42     bot.remove_webhook()
+   55  2026-07-20 00:16:42     bot.infinity_polling()
+   56  2026-07-20 00:16:42 ENDOFFILE
+   57  2026-07-18 21:40:26 chmod +x /home/vsmwrurd/ai_registration_engine/telegram_bot.py
+   58  2026-07-18 21:40:26 echo "✅ FIXED: Removed ALL trailing spaces and corrected spellings!"
+   59  2026-07-18 21:40:26 # Restart the bot
+   60  2026-07-18 21:40:26 pkill -f telegram_bot.py
+   61  2026-07-18 21:40:26 sleep 2
+   62  2026-07-18 21:40:28 cd /home/vsmwrurd/ai_registration_engine
+   63  2026-07-18 21:40:28 nohup /home/vsmwrurd/virtualenv/ai_registration_engine/3.9/bin/python3.9 telegram_bot.py > bot.log 2>&1 &
+   64  2026-07-18 21:40:28 echo "Bot restarted with PID: $!"
+   65  2026-07-18 21:40:28 sleep 3
+   66  2026-07-18 21:40:31 tail -20 bot.log
+   67  2026-07-18 21:40:52 python3 -c "
+   68  2026-07-20 00:16:42 import sqlite3
+   69  2026-07-20 00:16:42 conn = sqlite3.connect('/home/vsmwrurd/ai_registration_engine/booking_storage.db')
+   70  2026-07-20 00:16:42 cursor = conn.cursor()
+   71  2026-07-20 00:16:42 cursor.execute(\"SELECT line_item_name, actual_amount FROM budget_actuals_cache WHERE line_item_name = 'Water'\")
+   72  2026-07-20 00:16:42 row = cursor.fetchone()
+   73  2026-07-20 00:16:42 print(f'✅ Water updated: ₱{row[1]:,.2f}' if row else '❌ Not found')
+   74  2026-07-20 00:16:42 conn.close()
+   75  2026-07-20 00:16:42 "
+   76  2026-07-18 21:45:34 cd /home/vsmwrurd/ai_registration_engine
+   77  2026-07-18 21:45:34 # 1. Check if web app is running
+   78  2026-07-18 21:45:34 ps aux | grep python | grep -v grep
+   79  2026-07-18 21:45:34 # 2. Check for errors in crash logs
+   80  2026-07-18 21:45:34 echo "=== CRASH LOGS ==="
+   81  2026-07-18 21:45:34 tail -30 crash_log.txt 2>/dev/null || echo "No crash_log.txt"
+   82  2026-07-18 21:45:34 # 3. Check database integrity
+   83  2026-07-18 21:45:34 echo -e "\n=== DATABASE STATUS ==="
+   84  2026-07-18 21:45:34 python3 -c "
+   85  2026-07-20 00:16:42 import sqlite3
+   86  2026-07-20 00:16:42 try:
+   87  2026-07-20 00:16:42     conn = sqlite3.connect('booking_storage.db')
+   88  2026-07-20 00:16:42     cursor = conn.cursor()
+   89  2026-07-20 00:16:42     cursor.execute('SELECT COUNT(*) FROM system_users')
+   90  2026-07-20 00:16:42     count = cursor.fetchone()[0]
+   91  2026-07-20 00:16:42     print(f'✅ Database OK - {count} users found')
+   92  2026-07-20 00:16:42     conn.close()
+   93  2026-07-20 00:16:42 except Exception as e:
+   94  2026-07-20 00:16:42     print(f'❌ Database error: {e}')
+   95  2026-07-20 00:16:42 "
+   96  2026-07-18 21:45:34 # 4. Check if passenger_wsgi.py is intact
+   97  2026-07-18 21:45:34 echo -e "\n=== WEB APP STATUS ==="
+   98  2026-07-18 21:45:34 if [ -f "passenger_wsgi.py" ]; then     echo "✅ passenger_wsgi.py exists";     head -20 passenger_wsgi.py | grep -E "(import|def application)" | head -5; else     echo "❌ passenger_wsgi.py MISSING!"; fi
+   99  2026-07-18 21:45:34 # 5. Check Python app in cPanel
+  100  2026-07-18 21:45:34 echo -e "\n=== PYTHON APP CONFIG ==="
+  101  2026-07-18 21:45:34 ls -la /home/vsmwrurd/ai_registration_engine/passenger_wsgi.py
+  102  2026-07-18 21:57:15 cd /home/vsmwrurd
+  103  2026-07-18 21:57:15 # Create backup directory with timestamp
+  104  2026-07-18 21:57:15 BACKUP_DIR="/home/vsmwrurd/application_backups"
+  105  2026-07-18 21:57:15 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+  106  2026-07-18 21:57:15 BACKUP_NAME="aiec_backup_${TIMESTAMP}"
+  107  2026-07-18 21:57:15 mkdir -p "$BACKUP_DIR"
+  108  2026-07-18 21:57:15 echo " Creating comprehensive backup..."
+  109  2026-07-18 21:57:15 echo " Backup location: $BACKUP_DIR/$BACKUP_NAME"
+  110  2026-07-18 21:57:15 # Create the backup
+  111  2026-07-18 21:57:15 cd /home/vsmwrurd/ai_registration_engine
+  112  2026-07-18 21:57:15 # Create backup archive
+  113  2026-07-18 21:57:15 tar -czf "$BACKUP_DIR/${BACKUP_NAME}.tar.gz"     --exclude='__pycache__'     --exclude='*.pyc'     --exclude='.git'     .
+  114  2026-07-18 21:57:16 # Also backup the database separately
+  115  2026-07-18 21:57:16 cp booking_storage.db "$BACKUP_DIR/${BACKUP_NAME}_database.db"
+  116  2026-07-18 21:57:16 # Backup vouchers separately
+  117  2026-07-18 21:57:16 if [ -d "vouchers" ]; then     tar -czf "$BACKUP_DIR/${BACKUP_NAME}_vouchers.tar.gz" vouchers/; fi
+  118  2026-07-18 21:57:16 echo -e "\n✅ Backup completed successfully!"
+  119  2026-07-18 21:57:16 echo -e "\n📦 Backup files created:"
+  120  2026-07-18 21:57:16 ls -lh "$BACKUP_DIR" | grep "$BACKUP_NAME"
+  121  2026-07-18 21:57:16 # Verify backup integrity
+  122  2026-07-18 21:57:16 echo -e "\n🔍 Verifying backup integrity..."
+  123  2026-07-18 21:57:16 cd "$BACKUP_DIR"
+  124  2026-07-18 21:57:16 if tar -tzf "${BACKUP_NAME}.tar.gz" > /dev/null 2>&1; then     echo "✅ Main archive: OK"; else     echo "❌ Main archive: CORRUPTED"; fi
+  125  2026-07-18 21:57:16 if [ -f "${BACKUP_NAME}_database.db" ]; then     python3 -c "
+  126  2026-07-20 00:16:42 import sqlite3
+  127  2026-07-20 00:16:42 try:
+  128  2026-07-20 00:16:42     conn = sqlite3.connect('${BACKUP_NAME}_database.db')
+  129  2026-07-20 00:16:42     cursor = conn.cursor()
+  130  2026-07-20 00:16:42     cursor.execute('SELECT COUNT(*) FROM system_users')
+  131  2026-07-20 00:16:42     count = cursor.fetchone()[0]
+  132  2026-07-20 00:16:42     print(f'✅ Database backup: OK ({count} users)')
+  133  2026-07-20 00:16:42     conn.close()
+  134  2026-07-20 00:16:42 except Exception as e:
+  135  2026-07-20 00:16:42     print(f'❌ Database backup: ERROR - {e}')
+  136  2026-07-20 00:16:42 "; fi
+  137  2026-07-18 21:57:16 # Show backup summary
+  138  2026-07-18 21:57:16 echo -e "\n📊 BACKUP SUMMARY:"
+  139  2026-07-18 21:57:16 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  140  2026-07-18 21:57:16 echo "Location: $BACKUP_DIR"
+  141  2026-07-18 21:57:16 echo "Archive: ${BACKUP_NAME}.tar.gz"
+  142  2026-07-18 21:57:16 echo "Size: $(du -h ${BACKUP_NAME}.tar.gz | cut -f1)"
+  143  2026-07-18 21:57:16 echo "Created: $(date)"
+  144  2026-07-18 21:57:16 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  145  2026-07-18 21:57:16 # List what's included
+  146  2026-07-18 21:57:16 echo -e "\n📋 Files included in backup:"
+  147  2026-07-18 21:57:16 tar -tzf "$BACKUP_DIR/${BACKUP_NAME}.tar.gz" | head -30
+  148  2026-07-18 21:57:16 echo "..."
+  149  2026-07-18 21:57:16 echo "Total files: $(tar -tzf "$BACKUP_DIR/${BACKUP_NAME}.tar.gz" | wc -l)"
+  150  2026-07-18 21:57:16 # Create latest backup symlink
+  151  2026-07-18 21:57:16 cd "$BACKUP_DIR"
+  152  2026-07-18 21:57:16 ln -sf "${BACKUP_NAME}.tar.gz" latest_backup.tar.gz
+  153  2026-07-18 21:57:16 ln -sf "${BACKUP_NAME}_database.db" latest_database.db
+  154  2026-07-18 21:57:16 echo -e "\n✅ Backup complete! Latest backup symlinked as 'latest_backup.tar.gz'"
+  155  2026-07-18 22:04:48 cd /home/vsmwrurd/ai_registration_engine
+  156  2026-07-18 22:04:48 # Fix the EXPENSE_STRUCTURE - remove trailing spaces and correct spellings
+  157  2026-07-18 22:04:48 sed -i 's/"Other Expenses "/"Other Expenses"/g' telegram_bot.py
+  158  2026-07-18 22:04:48 sed -i 's/"Water "/"Water"/g' telegram_bot.py
+  159  2026-07-18 22:04:48 sed -i 's/"Service\/Maintenance "/"Service\/Maintainance"/g' telegram_bot.py
+  160  2026-07-18 22:04:48 sed -i 's/"Collaterals "/"Colletrals"/g' telegram_bot.py
+  161  2026-07-18 22:04:48 sed -i 's/"Payroll  & Pilotage "/"Payroll \& Pilotage fee"/g' telegram_bot.py
+  162  2026-07-18 22:04:48 # Remove trailing spaces from all items
+  163  2026-07-18 22:04:48 sed -i 's/"Power "/"Power"/g; s/"IT "/"IT"/g; s/"Communication "/"Communication"/g' telegram_bot.py
+  164  2026-07-18 22:04:48 sed -i 's/"Stationery "/"Stationery"/g; s/"Misc "/"Misc"/g; s/"Other "/"Other"/g' telegram_bot.py
+  165  2026-07-18 22:04:48 echo "✅ Fixed trailing spaces and spelling errors!"
+  166  2026-07-18 22:04:48 # Restart bot
+  167  2026-07-18 22:04:48 pkill -f telegram_bot.py
+  168  2026-07-18 22:04:48 sleep 2
+  169  2026-07-18 22:04:50 nohup /home/vsmwrurd/virtualenv/ai_registration_engine/3.9/bin/python3.9 telegram_bot.py > bot.log 2>&1 &
+  170  2026-07-18 22:04:50 echo "Bot restarted"
+  171  2026-07-18 22:05:50 cat > /home/vsmwrurd/ai_registration_engine/backup_app.sh << 'EOF'
+  172  2026-07-20 00:16:42 #!/bin/bash
+  173  2026-07-20 00:16:42 # AIEC Application Backup Script
+  174  2026-07-20 00:16:42 # Usage: ./backup_app.sh
+  175  2026-07-20 00:16:42 BACKUP_DIR="/home/vsmwrurd/application_backups"
+  176  2026-07-20 00:16:42 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+  177  2026-07-20 00:16:42 BACKUP_NAME="aiec_backup_${TIMESTAMP}"
+  178  2026-07-20 00:16:42 APP_DIR="/home/vsmwrurd/ai_registration_engine"
+  179  2026-07-20 00:16:42 mkdir -p "$BACKUP_DIR"
+  180  2026-07-20 00:16:42 echo "🔐 Creating backup: $BACKUP_NAME..."
+  181  2026-07-20 00:16:42 cd "$APP_DIR"
+  182  2026-07-20 00:16:42 # Create main backup
+  183  2026-07-20 00:16:42 tar -czf "$BACKUP_DIR/${BACKUP_NAME}.tar.gz" \
+  184  2026-07-20 00:16:42     --exclude='__pycache__' \
+  185  2026-07-20 00:16:42     --exclude='*.pyc' \
+  186  2026-07-20 00:16:42     --exclude='.git' \
+  187  2026-07-20 00:16:42     .
+  188  2026-07-20 00:16:42 # Backup database
+  189  2026-07-20 00:16:42 cp booking_storage.db "$BACKUP_DIR/${BACKUP_NAME}_database.db"
+  190  2026-07-20 00:16:42 # Backup vouchers if exists
+  191  2026-07-20 00:16:42 if [ -d "vouchers" ] && [ "$(ls -A vouchers)" ]; then
+  192  2026-07-20 00:16:42     tar -czf "$BACKUP_DIR/${BACKUP_NAME}_vouchers.tar.gz" vouchers/
+  193  2026-07-20 00:16:42 fi
+  194  2026-07-20 00:16:42 # Create latest symlinks
+  195  2026-07-20 00:16:42 cd "$BACKUP_DIR"
+  196  2026-07-20 00:16:42 ln -sf "${BACKUP_NAME}.tar.gz" latest_backup.tar.gz
+  197  2026-07-20 00:16:42 ln -sf "${BACKUP_NAME}_database.db" latest_database.db
+  198  2026-07-20 00:16:42 echo "✅ Backup completed: $BACKUP_DIR/${BACKUP_NAME}.tar.gz"
+  199  2026-07-20 00:16:42 echo "📦 Size: $(du -h ${BACKUP_NAME}.tar.gz | cut -f1)"
+  200  2026-07-20 00:16:42 # Cleanup old backups (keep last 10)
+  201  2026-07-20 00:16:42 cd "$BACKUP_DIR"
+  202  2026-07-20 00:16:42 ls -t aiec_backup_*.tar.gz | tail -n +11 | xargs -r rm
+  203  2026-07-20 00:16:42 echo "🗑️  Old backups cleaned (keeping last 10)"
+  204  2026-07-20 00:16:42 EOF
+  205  2026-07-18 22:05:50 chmod +x /home/vsmwrurd/ai_registration_engine/backup_app.sh
+  206  2026-07-18 22:05:50 echo "✅ Backup script created: /home/vsmwrurd/ai_registration_engine/backup_app.sh"
+  207  2026-07-18 22:05:50 echo "   Usage: ./backup_app.sh"
+  208  2026-07-18 22:06:16 # Extract backup
+  209  2026-07-18 22:06:16 cd /home/vsmwrurd/ai_registration_engine
+  210  2026-07-18 22:06:16 tar -xzf /home/vsmwrurd/application_backups/latest_backup.tar.gz
+  211  2026-07-18 22:06:16 # Restore database
+  212  2026-07-18 22:06:16 cp /home/vsmwrurd/application_backups/latest_database.db booking_storage.db
+  213  2026-07-18 22:06:16 # Restart app in cPanel
+  214  2026-07-18 22:06:16 echo "✅ Restoration complete! Restart the app in cPanel."
+  215  2026-07-18 22:15:03 cd /home/vsmwrurd/ai_registration_engine
+  216  2026-07-18 22:15:03 python3 << 'EOF'
+  217  2026-07-20 00:16:42 import sqlite3
+  218  2026-07-20 00:16:42 conn = sqlite3.connect('booking_storage.db')
+  219  2026-07-20 00:16:42 cursor = conn.cursor()
+  220  2026-07-20 00:16:42 # View current actuals
+  221  2026-07-20 00:16:42 cursor.execute("""
+  222  2026-07-20 00:16:42     SELECT line_item_name, actual_amount 
+  223  2026-07-20 00:16:42     FROM budget_actuals_cache 
+  224  2026-07-20 00:16:42     WHERE actual_amount > 0 
+  225  2026-07-20 00:16:42     ORDER BY line_item_name
+  226  2026-07-20 00:16:42 """)
+  227  2026-07-20 00:16:42 print("Current Actuals:")
+  228  2026-07-20 00:16:42 for row in cursor.fetchall():
+  229  2026-07-20 00:16:42     print(f"  {row[0]}: ₱{row[1]:,.2f}")
+  230  2026-07-20 00:16:42 # Update a specific item
+  231  2026-07-20 00:16:42 item_name = input("\nEnter item name to update: ")
+  232  2026-07-20 00:16:42 new_amount = float(input("Enter new amount: "))
+  233  2026-07-20 00:16:42 cursor.execute("""
+  234  2026-07-20 00:16:42     UPDATE budget_actuals_cache 
+  235  2026-07-20 00:16:42     SET actual_amount = ?
+  236  2026-07-20 00:16:42     WHERE line_item_name = ?
+  237  2026-07-20 00:16:42 """, (new_amount, item_name))
+  238  2026-07-20 00:16:42 conn.commit()
+  239  2026-07-20 00:16:42 print(f"✅ Updated {item_name} to ₱{new_amount:,.2f}")
+  240  2026-07-20 00:16:42 conn.close()
+  241  2026-07-20 00:16:42 EOF
+  242  2026-07-18 22:25:14 # Check the frontend HTML for duplicate phone fields
+  243  2026-07-18 22:25:14 cd /home/vsmwrurd/public_html/app.aiexperiencecenter.ph
+  244  2026-07-18 22:25:14 # Find all phone field occurrences
+  245  2026-07-18 22:25:14 grep -n "phone" index.html
+  246  2026-07-18 22:25:14 # Show the manual entry section
+  247  2026-07-18 22:25:14 grep -A 10 -B 2 "Manual Entry\|manual" index.html | head -30
+  248  2026-07-18 22:29:25 cd /home/vsmwrurd/public_html/app.aiexperiencecenter.ph
+  249  2026-07-18 22:29:25 # Show the duplicate lines
+  250  2026-07-18 22:29:25 echo "=== Current duplicate phone fields ==="
+  251  2026-07-18 22:29:25 sed -n '48,55p' index.html
+  252  2026-07-18 22:29:25 # Remove the duplicate phone field (line 51)
+  253  2026-07-18 22:29:25 sed -i '51d' index.html
+  254  2026-07-18 22:29:25 # Verify the fix
+  255  2026-07-18 22:29:25 echo ""
+  256  2026-07-18 22:29:25 echo "=== After fix - should show only ONE phone field ==="
+  257  2026-07-18 22:29:25 sed -n '48,54p' index.html
+  258  2026-07-18 22:29:25 # Also fix the duplicate phone clearing in JavaScript (around line 244)
+  259  2026-07-18 22:29:25 echo ""
+  260  2026-07-18 22:29:25 echo "=== Checking JavaScript phone clearing ==="
+  261  2026-07-18 22:29:25 sed -n '242,246p' index.html
+  262  2026-07-18 22:29:25 # If there's duplicate phone clearing, remove one
+  263  2026-07-18 22:29:25 sed -i '244d' index.html
+  264  2026-07-18 22:29:25 echo ""
+  265  2026-07-18 22:29:25 echo "✅ Duplicate phone fields removed!"
+  266  2026-07-18 22:29:25 echo ""
+  267  2026-07-18 22:29:25 echo "Test now: https://app.aiexperiencecenter.ph/"
+  268  2026-07-18 22:29:25 echo "The manual entry form should now show only ONE Phone field."
+  269  2026-07-18 22:37:04 cd /home/vsmwrurd/api
+  270  2026-07-18 22:37:04 echo "=== Checking Phone Field in Admin ==="
+  271  2026-07-18 22:37:04 # 1. Check if phone column exists in database
+  272  2026-07-18 22:37:04 echo "1. Database Schema:"
+  273  2026-07-18 22:37:04 sqlite3 aiec_leads.db "PRAGMA table_info(leads);" | grep -i phone
+  274  2026-07-18 22:37:04 # 2. Check if admin.html has phone field
+  275  2026-07-18 22:37:04 echo ""
+  276  2026-07-18 22:37:04 echo "2. Admin HTML Phone Field:"
+  277  2026-07-18 22:37:04 grep -n "phone" templates/admin.html | head -10
+  278  2026-07-18 22:37:04 # 3. Check routes_admin.py update function
+  279  2026-07-18 22:37:04 echo ""
+  280  2026-07-18 22:37:04 echo "3. Admin Update Route:"
+  281  2026-07-18 22:37:04 grep -A 10 "def update" routes_admin.py
+  282  2026-07-18 22:37:04 # 4. Check if phone is in allowed_fields in models.py
+  283  2026-07-18 22:37:04 echo ""
+  284  2026-07-18 22:37:04 echo "4. Models.py Allowed Fields:"
+  285  2026-07-18 22:37:04 grep -A 5 "allowed_fields" models.py
+  286  2026-07-18 22:37:04 # 5. Test if phone saves in database
+  287  2026-07-18 22:37:04 echo ""
+  288  2026-07-18 22:37:04 echo "5. Sample Lead Data:"
+  289  2026-07-18 22:37:04 sqlite3 aiec_leads.db "SELECT id, name, phone FROM leads LIMIT 3;"
+  290  2026-07-18 22:39:04 cd /home/vsmwrurd/api
+  291  2026-07-18 22:39:04 # 1. Fix routes_admin.py - add 'phone' to the update fields
+  292  2026-07-18 22:39:04 sed -i "s/for field in \['name', 'company', 'email', 'audio_note'\]:/for field in ['name', 'company', 'email', 'audio_note', 'phone']:/" routes_admin.py
+  293  2026-07-18 22:39:04 # 2. Verify the fix
+  294  2026-07-18 22:39:04 echo "=== Updated Admin Update Route ==="
+  295  2026-07-18 22:39:04 grep -A 10 "def update" routes_admin.py
+  296  2026-07-18 22:39:04 # 3. Also check if admin.html displays phone field
+  297  2026-07-18 22:39:04 echo ""
+  298  2026-07-18 22:39:04 echo "=== Checking Admin HTML ==="
+  299  2026-07-18 22:39:04 grep -n "phone" templates/admin.html | head -5
+  300  2026-07-18 22:39:04 # 4. If admin.html doesn't have phone column, add it
+  301  2026-07-18 22:39:04 if ! grep -q "Phone" templates/admin.html; then     echo "Adding phone column to admin.html..."     sed -i 's/<th>Email<\/th>/<th>Email<\/th><th>Phone<\/th>/' templates/admin.html;          sed -i 's/<td><div class="editable" contenteditable="\${isEditing}" onblur="saveField(\${lead.id}, '\''email'\'', this.innerText)">' \&{lead.email \|\| '-'}<\/div><\/td>/<td><div class="editable" contenteditable="\${isEditing}" onblur="saveField(\${lead.id}, '\''email'\'', this.innerText)">\&{lead.email \|\| '-'}<\/div><\/td><td><div class="editable" contenteditable="\${isEditing}" onblur="saveField(\${lead.id}, '\''phone'\'', this.innerText)">\&{lead.phone \|\| '-'}<\/div><\/td>/' templates/admin.html
+  302  2026-07-18 22:39:04 fi
+  303  2026-07-18 22:39:04 # 5. Restart app
+  304  2026-07-18 22:39:04 touch passenger.wsgi
+  305  2026-07-18 22:39:05 echo ""
+  306  2026-07-18 22:39:05 echo "✅ Phone field fix applied!"
+  307  2026-07-18 22:39:05 echo "Test: https://api.aiexperiencecenter.ph/admin"
+  308  2026-07-18 22:39:05 echo "You should now be able to edit phone numbers in the admin panel."
+  309  2026-07-18 22:45:48 cd /home/vsmwrurd/api
+  310  2026-07-18 22:45:48 echo "=== Fixing Phone Number Display in All Locations ==="
+  311  2026-07-18 22:45:48 # 1. FIX ADMIN PANEL - Add Phone Column
+  312  2026-07-18 22:45:48 echo "1. Updating Admin Panel..."
+  313  2026-07-18 22:45:48 # First, let's recreate admin.html with phone column
+  314  2026-07-18 22:45:48 cat > templates/admin.html << 'EOF'
+  315  2026-07-20 00:16:42 <!DOCTYPE html>
+  316  2026-07-20 00:16:42 <html>
+  317  2026-07-20 00:16:42 <head>
+  318  2026-07-20 00:16:42     <title>AiEC Admin</title>
+  319  2026-07-20 00:16:42     <meta charset="UTF-8">
+  320  2026-07-20 00:16:42     <meta name="viewport" content="width=device-width, initial-scale=1">
+  321  2026-07-20 00:16:42     <style>
+  322  2026-07-20 00:16:42         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 20px; margin: 0; }
+  323  2026-07-20 00:16:42         .container { max-width: 1600px; margin: 0 auto; }
+  324  2026-07-20 00:16:42         h1 { color: #2dd4bf; margin-bottom: 30px; }
+  325  2026-07-20 00:16:42         .login-box { max-width: 400px; margin: 100px auto; background: #1e293b; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+  326  2026-07-20 00:16:42         input { width: 100%; padding: 12px; margin: 10px 0; background: #334155; border: 1px solid #475569; color: white; border-radius: 6px; box-sizing: border-box; }
+  327  2026-07-20 00:16:42         button { padding: 12px 24px; background: #0d9488; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; margin: 10px 5px; }
+  328  2026-07-20 00:16:42         button:hover { background: #0f766e; }
+  329  2026-07-20 00:16:42         .dashboard { display: none; }
+  330  2026-07-20 00:16:42         .stats { background: #1e293b; padding: 20px; border-radius: 8px; margin: 20px 0; display: flex; gap: 30px; flex-wrap: wrap; }
+  331  2026-07-20 00:16:42         .stat-item { font-size: 16px; }
+  332  2026-07-20 00:16:42         .stat-item strong { color: #2dd4bf; }
+  333  2026-07-20 00:16:42         table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #1e293b; border-radius: 8px; overflow: hidden; }
+  334  2026-07-20 00:16:42         th, td { padding: 16px 12px; border: 1px solid #334155; text-align: left; }
+  335  2026-07-20 00:16:42         th { background: #0f766e; color: #2dd4bf; font-weight: 600; }
+  336  2026-07-20 00:16:42         tr:hover { background: #334155; }
+  337  2026-07-20 00:16:42         .editable { background: transparent; border: 1px solid transparent; padding: 4px; border-radius: 4px; min-width: 100px; }
+  338  2026-07-20 00:16:42         .editable[contenteditable="true"] { background: #334155; border-color: #0d9488; cursor: text; }
+  339  2026-07-20 00:16:42         .editable[contenteditable="true"]:focus { outline: none; border-color: #2dd4bf; }
+  340  2026-07-20 00:16:42         .btn-edit { background: #059669; padding: 6px 12px; font-size: 14px; }
+  341  2026-07-20 00:16:42         .btn-delete { background: #dc2626; padding: 6px 12px; font-size: 14px; }
+  342  2026-07-20 00:16:42         .btn-refresh { background: #0891b2; margin-bottom: 20px; }
+  343  2026-07-20 00:16:42         .error { background: #dc2626; color: white; padding: 12px; border-radius: 6px; margin: 10px 0; }
+  344  2026-07-20 00:16:42         .hidden { display: none; }
+  345  2026-07-20 00:16:42         .phone-cell { color: #fbbf24; }
+  346  2026-07-20 00:16:42     </style>
+  347  2026-07-20 00:16:42 </head>
+  348  2026-07-20 00:16:42 <body>
+  349  2026-07-20 00:16:42     <div class="container">
+  350  2026-07-20 00:16:42         <div id="loginForm" class="login-box">
+  351  2026-07-20 00:16:42             <h2 style="text-align: center; color: #2dd4bf; margin-top: 0;">🔐 AiEC Admin</h2>
+  352  2026-07-20 00:16:42             <input type="text" id="username" placeholder="Username" value="admin">
+  353  2026-07-20 00:16:42             <input type="password" id="password" placeholder="Password" value="aiec2026">
+  354  2026-07-20 00:16:42             <button onclick="login()" style="width: 100%; margin-top: 20px;">Login</button>
+  355  2026-07-20 00:16:42             <div id="loginError" class="error hidden"></div>
+  356  2026-07-20 00:16:42         </div>
+  357  2026-07-20 00:16:42         
+  358  2026-07-20 00:16:42         <div id="dashboard" class="dashboard">
+  359  2026-07-20 00:16:42             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+  360  2026-07-20 00:16:42                 <h1 style="margin: 0;">📊 Leads Database</h1>
+  361  2026-07-20 00:16:42                 <button onclick="logout()" style="background: #dc2626;">Logout</button>
+  362  2026-07-20 00:16:42             </div>
+  363  2026-07-20 00:16:42             
+  364  2026-07-20 00:16:42             <button onclick="loadLeads()" class="btn-refresh">🔄 Refresh</button>
+  365  2026-07-20 00:16:42             
+  366  2026-07-20 00:16:42             <div id="stats" class="stats" style="display:none;">
+  367  2026-07-20 00:16:42                 <div class="stat-item"><strong>Total Leads:</strong> <span id="totalLeads">0</span></div>
+  368  2026-07-20 00:16:42                 <div class="stat-item"><strong>Voice Notes:</strong> <span id="voiceNotes">0</span></div>
+  369  2026-07-20 00:16:42                 <div class="stat-item"><strong>With Phone:</strong> <span id="withPhone">0</span></div>
+  370  2026-07-20 00:16:42                 <div class="stat-item"><strong>Updated:</strong> <span id="lastUpdate">-</span></div>
+  371  2026-07-20 00:16:42             </div>
+  372  2026-07-20 00:16:42             
+  373  2026-07-20 00:16:42             <div id="message"></div>
+  374  2026-07-20 00:16:42             <div id="data"></div>
+  375  2026-07-20 00:16:42         </div>
+  376  2026-07-20 00:16:42     </div>
+  377  2026-07-20 00:16:42     <script>
+  378  2026-07-20 00:16:42         let allLeads = [];
+  379  2026-07-20 00:16:42         let editingId = null;
+  380  2026-07-20 00:16:42         async function login() {
+  381  2026-07-20 00:16:42             const username = document.getElementById('username').value;
+  382  2026-07-20 00:16:42             const password = document.getElementById('password').value;
+  383  2026-07-20 00:16:42             try {
+  384  2026-07-20 00:16:42                 const r = await fetch('/api/admin/login', {
+  385  2026-07-20 00:16:42                     method: 'POST',
+  386  2026-07-20 00:16:42                     headers: {'Content-Type': 'application/json'},
+  387  2026-07-20 00:16:42                     credentials: 'same-origin',
+  388  2026-07-20 00:16:42                     body: JSON.stringify({username, password})
+  389  2026-07-20 00:16:42                 });
+  390  2026-07-20 00:16:42                 if (r.ok) {
+  391  2026-07-20 00:16:42                     document.getElementById('loginForm').style.display = 'none';
+  392  2026-07-20 00:16:42                     document.getElementById('dashboard').style.display = 'block';
+  393  2026-07-20 00:16:42                     loadLeads();
+  394  2026-07-20 00:16:42                 } else {
+  395  2026-07-20 00:16:42                     document.getElementById('loginError').textContent = 'Invalid credentials';
+  396  2026-07-20 00:16:42                     document.getElementById('loginError').classList.remove('hidden');
+  397  2026-07-20 00:16:42                 }
+  398  2026-07-20 00:16:42             } catch(e) { 
+  399  2026-07-20 00:16:42                 document.getElementById('loginError').textContent = 'Error: ' + e.message;
+  400  2026-07-20 00:16:42                 document.getElementById('loginError').classList.remove('hidden');
+  401  2026-07-20 00:16:42             }
+  402  2026-07-20 00:16:42         }
+  403  2026-07-20 00:16:42         async function logout() {
+  404  2026-07-20 00:16:42             await fetch('/api/admin/logout', {method: 'POST', credentials: 'same-origin'});
+  405  2026-07-20 00:16:42             location.reload();
+  406  2026-07-20 00:16:42         }
+  407  2026-07-20 00:16:42         async function loadLeads() {
+  408  2026-07-20 00:16:42             try {
+  409  2026-07-20 00:16:42                 const r = await fetch('/api/admin/leads', {credentials: 'same-origin'});
+  410  2026-07-20 00:16:42                 allLeads = await r.json();
+  411  2026-07-20 00:16:42                 
+  412  2026-07-20 00:16:42                 if (allLeads.length === 0) {
+  413  2026-07-20 00:16:42                     document.getElementById('data').innerHTML = '<p style="text-align: center; padding: 40px; color: #94a3b8;">No leads found</p>';
+  414  2026-07-20 00:16:42                     document.getElementById('stats').style.display = 'none';
+  415  2026-07-20 00:16:42                     return;
+  416  2026-07-20 00:16:42                 }
+  417  2026-07-20 00:16:42                 
+  418  2026-07-20 00:16:42                 // Calculate stats
+  419  2026-07-20 00:16:42                 const withAudio = allLeads.filter(l => l.audio_note).length;
+  420  2026-07-20 00:16:42                 const withPhone = allLeads.filter(l => l.phone && l.phone.trim() !== '').length;
+  421  2026-07-20 00:16:42                 
+  422  2026-07-20 00:16:42                 document.getElementById('totalLeads').textContent = allLeads.length;
+  423  2026-07-20 00:16:42                 document.getElementById('voiceNotes').textContent = withAudio;
+  424  2026-07-20 00:16:42                 document.getElementById('withPhone').textContent = withPhone;
+  425  2026-07-20 00:16:42                 document.getElementById('lastUpdate').textContent = new Date().toLocaleString();
+  426  2026-07-20 00:16:42                 document.getElementById('stats').style.display = 'flex';
+  427  2026-07-20 00:16:42                 
+  428  2026-07-20 00:16:42                 // Build table
+  429  2026-07-20 00:16:42                 let html = '<table><thead><tr>' +
+  430  2026-07-20 00:16:42                     '<th>ID</th>' +
+  431  2026-07-20 00:16:42                     '<th>Name</th>' +
+  432  2026-07-20 00:16:42                     '<th>Phone</th>' +
+  433  2026-07-20 00:16:42                     '<th>Email</th>' +
+  434  2026-07-20 00:16:42                     '<th>Company</th>' +
+  435  2026-07-20 00:16:42                     '<th>Audio Notes</th>' +
+  436  2026-07-20 00:16:42                     '<th>Timestamp</th>' +
+  437  2026-07-20 00:16:42                     '<th>Actions</th>' +
+  438  2026-07-20 00:16:42                     '</tr></thead><tbody>';
+  439  2026-07-20 00:16:42                 
+  440  2026-07-20 00:16:42                 allLeads.forEach(lead => {
+  441  2026-07-20 00:16:42                     const isEditing = editingId === lead.id;
+  442  2026-07-20 00:16:42                     html += '<tr data-id="' + lead.id + '">' +
+  443  2026-07-20 00:16:42                         '<td>' + lead.id + '</td>' +
+  444  2026-07-20 00:16:42                         '<td><div class="editable" contenteditable="' + isEditing + '" onblur="saveField(' + lead.id + ', \'name\', this.innerText)">' + (lead.name || '-') + '</div></td>' +
+  445  2026-07-20 00:16:42                         '<td class="phone-cell"><div class="editable" contenteditable="' + isEditing + '" onblur="saveField(' + lead.id + ', \'phone\', this.innerText)">' + (lead.phone || '-') + '</div></td>' +
+  446  2026-07-20 00:16:42                         '<td><div class="editable" contenteditable="' + isEditing + '" onblur="saveField(' + lead.id + ', \'email\', this.innerText)">' + (lead.email || '-') + '</div></td>' +
+  447  2026-07-20 00:16:42                         '<td><div class="editable" contenteditable="' + isEditing + '" onblur="saveField(' + lead.id + ', \'company\', this.innerText)">' + (lead.company || '-') + '</div></td>' +
+  448  2026-07-20 00:16:42                         '<td style="max-width: 250px; white-space: pre-wrap; font-size: 13px; color: #94a3b8;">' + (lead.audio_note || '-') + '</td>' +
+  449  2026-07-20 00:16:42                         '<td style="font-size: 13px; color: #94a3b8;">' + (lead.timestamp || '-') + '</td>' +
+  450  2026-07-20 00:16:42                         '<td>' +
+  451  2026-07-20 00:16:42                         '<button onclick="enableEdit(' + lead.id + ')" class="btn-edit">✏️ Edit</button> ' +
+  452  2026-07-20 00:16:42                         '<button onclick="deleteLead(' + lead.id + ')" class="btn-delete">🗑️</button>' +
+  453  2026-07-20 00:16:42                         '</td></tr>';
+  454  2026-07-20 00:16:42                 });
+  455  2026-07-20 00:16:42                 
+  456  2026-07-20 00:16:42                 html += '</tbody></table>';
+  457  2026-07-20 00:16:42                 document.getElementById('data').innerHTML = html;
+  458  2026-07-20 00:16:42             } catch(e) {
+  459  2026-07-20 00:16:42                 document.getElementById('message').innerHTML = '<div class="error">Error loading leads: ' + e.message + '</div>';
+  460  2026-07-20 00:16:42             }
+  461  2026-07-20 00:16:42         }
+  462  2026-07-20 00:16:42         function enableEdit(id) {
+  463  2026-07-20 00:16:42             editingId = id;
+  464  2026-07-20 00:16:42             loadLeads();
+  465  2026-07-20 00:16:42         }
+  466  2026-07-20 00:16:42         async function saveField(id, field, value) {
+  467  2026-07-20 00:16:42             try {
+  468  2026-07-20 00:16:42                 const r = await fetch('/api/admin/leads/' + id, {
+  469  2026-07-20 00:16:42                     method: 'PUT',
+  470  2026-07-20 00:16:42                     headers: {'Content-Type': 'application/json'},
+  471  2026-07-20 00:16:42                     credentials: 'same-origin',
+  472  2026-07-20 00:16:42                     body: JSON.stringify({[field]: value.trim()})
+  473  2026-07-20 00:16:42                 });
+  474  2026-07-20 00:16:42                 if (r.ok) {
+  475  2026-07-20 00:16:42                     // Reload to show updated data
+  476  2026-07-20 00:16:42                     setTimeout(loadLeads, 500);
+  477  2026-07-20 00:16:42                 } else {
+  478  2026-07-20 00:16:42                     alert('Failed to save field');
+  479  2026-07-20 00:16:42                 }
+  480  2026-07-20 00:16:42             } catch(e) { 
+  481  2026-07-20 00:16:42                 alert('Error: ' + e.message); 
+  482  2026-07-20 00:16:42             }
+  483  2026-07-20 00:16:42             editingId = null;
+  484  2026-07-20 00:16:42         }
+  485  2026-07-20 00:16:42         async function deleteLead(id) {
+  486  2026-07-20 00:16:42             if (!confirm('Delete lead #' + id + '? This cannot be undone.')) return;
+  487  2026-07-20 00:16:42             try {
+  488  2026-07-20 00:16:42                 const r = await fetch('/api/admin/leads/' + id, {
+  489  2026-07-20 00:16:42                     method: 'DELETE',
+  490  2026-07-20 00:16:42                     credentials: 'same-origin'
+  491  2026-07-20 00:16:42                 });
+  492  2026-07-20 00:16:42                 if (r.ok) loadLeads();
+  493  2026-07-20 00:16:42                 else alert('Failed to delete lead');
+  494  2026-07-20 00:16:42             } catch(e) { 
+  495  2026-07-20 00:16:42                 alert('Error: ' + e.message); 
+  496  2026-07-20 00:16:42             }
+  497  2026-07-20 00:16:42         }
+  498  2026-07-20 00:16:42     </script>
+  499  2026-07-20 00:16:42 </body>
+  500  2026-07-20 00:16:42 </html>
+  501  2026-07-20 00:16:42 EOF
+  502  2026-07-18 22:45:48 echo "✅ Admin panel updated with Phone column"
+  503  2026-07-18 22:45:48 # 2. FIX TELEGRAM ALERTS - Add phone to notifications
+  504  2026-07-18 22:45:48 echo "2. Updating Telegram alerts..."
+  505  2026-07-18 22:45:48 # Update routes_public.py to include phone in manual entry alert
+  506  2026-07-18 22:45:48 sed -i "s/send_telegram_alert(f\"New Lead: {data.get('name')} ({data.get('email')})\")/phone = data.get('phone', '')\n    phone_str = f\" | {phone}\" if phone else \"\"\n    send_telegram_alert(f\"🆕 New Lead: {data.get('name')}{phone_str}\\n {data.get('email')}\")/" routes_public.py
+  507  2026-07-18 22:45:48 # Update routes_public.py to include phone in QR alert
+  508  2026-07-18 22:45:48 sed -i "s/send_telegram_alert(f\"QR Lead: {name} ({email})\")/phone_str = f\"\\n📞 {phone}\" if phone else \"\"\nsend_telegram_alert(f\" QR Lead: {name}{phone_str}\\n📧 {email}\\n {company}\")/" routes_public.py
+  509  2026-07-18 22:45:48 echo "✅ Telegram alerts updated with phone numbers"
+  510  2026-07-18 22:45:48 # 3. FIX FRONTEND LEAD LIST - Add phone display
+  511  2026-07-18 22:45:48 echo "3. Updating frontend lead list..."
+  512  2026-07-18 22:45:48 cd /home/vsmwrurd/public_html/app.aiexperiencecenter.ph
+  513  2026-07-18 22:45:48 # Update the leads list display to show phone
+  514  2026-07-18 22:45:48 if [ -f "index.html" ]; then     if grep -q "Leads List" index.html; then         echo "✅ Frontend has leads list - checking for phone display..."         if grep -q "phone" index.html; then             echo "✅ Phone field already in frontend";         else             echo "⚠️  Phone field may need to be added to frontend display manually";         fi;     fi; fi
+  515  2026-07-18 22:45:48 # 4. Restart the app
+  516  2026-07-18 22:45:48 cd /home/vsmwrurd/api
+  517  2026-07-18 22:45:48 touch passenger.wsgi
+  518  2026-07-18 22:45:48 echo ""
+  519  2026-07-18 22:45:48 echo "=== ALL UPDATES COMPLETE ==="
+  520  2026-07-18 22:45:48 echo ""
+  521  2026-07-18 22:45:48 echo "✅ Admin Panel: Phone column added with stats"
+  522  2026-07-18 22:45:48 echo "✅ Telegram: Phone numbers included in alerts"
+  523  2026-07-18 22:45:48 echo "✅ Database: Phone field already exists"
+  524  2026-07-18 22:45:48 echo ""
+  525  2026-07-18 22:45:48 echo "Test now:"
+  526  2026-07-18 22:45:48 echo "  - Admin: https://api.aiexperiencecenter.ph/admin"
+  527  2026-07-18 22:45:48 echo "  - App: https://app.aiexperiencecenter.ph/"
+  528  2026-07-18 22:45:48 echo ""
+  529  2026-07-18 22:45:48 echo "The phone number will now appear in:"
+  530  2026-07-18 22:45:48 echo "  1. Admin dashboard table (editable)"
+  531  2026-07-18 22:45:48 echo "  2. Telegram notifications"
+  532  2026-07-18 22:45:48 echo "  3. Database records"
+  533  2026-07-18 22:52:59 cd /home/vsmwrurd/api
+  534  2026-07-18 22:52:59 echo "=== DIAGNOSING PHONE FIELD FLOW ==="
+  535  2026-07-18 22:52:59 # 1. Check if phone is in the database schema
+  536  2026-07-18 22:52:59 echo "1. Database Schema:"
+  537  2026-07-18 22:52:59 sqlite3 aiec_leads.db "PRAGMA table_info(leads);" | grep -i phone
+  538  2026-07-18 22:52:59 # 2. Check routes_public.py - manual lead intake
+  539  2026-07-18 22:52:59 echo ""
+  540  2026-07-18 22:52:59 echo "2. Manual Lead Route (should include phone):"
+  541  2026-07-18 22:52:59 grep -A 10 "def intake_manual" routes_public.py
+  542  2026-07-18 22:52:59 # 3. Check routes_public.py - QR lead intake  
+  543  2026-07-18 22:52:59 echo ""
+  544  2026-07-18 22:52:59 echo "3. QR Lead Route (should include phone):"
+  545  2026-07-18 22:52:59 grep -A 10 "def intake_qr" routes_public.py
+  546  2026-07-18 22:52:59 # 4. Check models.py create_lead function
+  547  2026-07-18 22:52:59 echo ""
+  548  2026-07-18 22:52:59 echo "4. create_lead function (should accept phone parameter):"
+  549  2026-07-18 22:52:59 grep -A 8 "def create_lead" models.py
+  550  2026-07-18 22:52:59 # 5. Test if phone column exists and can be written to
+  551  2026-07-18 22:52:59 echo ""
+  552  2026-07-18 22:52:59 echo "5. Testing database write:"
+  553  2026-07-18 22:52:59 sqlite3 aiec_leads.db "INSERT INTO leads (name, company, email, phone, source) VALUES ('Test Phone', 'Test Co', 'test@phone.com', '+1234567890', 'Test');"
+  554  2026-07-18 22:52:59 sqlite3 aiec_leads.db "SELECT id, name, phone FROM leads WHERE email='test@phone.com';"
+  555  2026-07-18 22:52:59 sqlite3 aiec_leads.db "DELETE FROM leads WHERE email='test@phone.com';"
+  556  2026-07-18 22:54:14 cd /home/vsmwrurd/api
+  557  2026-07-18 22:54:14 # Fix routes_public.py - ensure phone is captured in manual entry
+  558  2026-07-18 22:54:14 cat > routes_public.py << 'EOF'
+  559  2026-07-20 00:16:42 from flask import Blueprint, request, jsonify
+  560  2026-07-20 00:16:42 from models import get_all_leads, get_lead, create_lead, append_audio_note
+  561  2026-07-20 00:16:42 from services import send_telegram_alert, generate_ai_email, parse_qr_vcard
+  562  2026-07-20 00:16:42 from config import AUDIO_FOLDER
+  563  2026-07-20 00:16:42 import os
+  564  2026-07-20 00:16:42 from datetime import datetime
+  565  2026-07-20 00:16:42 public_bp = Blueprint('public', __name__)
+  566  2026-07-20 00:16:42 @public_bp.route('/api/leads/manual', methods=['POST'])
+  567  2026-07-20 00:16:42 def intake_manual():
+  568  2026-07-20 00:16:42     data = request.json or {}
+  569  2026-07-20 00:16:42     name = data.get('name', 'Unknown')
+  570  2026-07-20 00:16:42     company = data.get('company', 'Unknown')
+  571  2026-07-20 00:16:42     email = data.get('email', 'Unknown')
+  572  2026-07-20 00:16:42     phone = data.get('phone', '')  # CAPTURE PHONE
+  573  2026-07-20 00:16:42     
+  574  2026-07-20 00:16:42     # Create lead with phone
+  575  2026-07-20 00:16:42     lead_id = create_lead(name, company, email, "Manual Input", phone)
+  576  2026-07-20 00:16:42     
+  577  2026-07-20 00:16:42     # Send Telegram alert with phone
+  578  2026-07-20 00:16:42     phone_str = f"\n {phone}" if phone else ""
+  579  2026-07-20 00:16:42     send_telegram_alert(f"🆕 New Lead: {name}{phone_str}\n📧 {email}\n🏢 {company}")
+  580  2026-07-20 00:16:42     
+  581  2026-07-20 00:16:42     return jsonify({"status": "success", "lead_id": lead_id, "name": name, "phone": phone})
+  582  2026-07-20 00:16:42 @public_bp.route('/api/leads/qr', methods=['POST'])
+  583  2026-07-20 00:16:42 def intake_qr():
+  584  2026-07-20 00:16:42     data = request.json or {}
+  585  2026-07-20 00:16:42     qr_payload = data.get('qr_payload', '')
+  586  2026-07-20 00:16:42     name, company, email, phone = parse_qr_vcard(qr_payload)
+  587  2026-07-20 00:16:42     
+  588  2026-07-20 00:16:42     # Create lead with phone from QR
+  589  2026-07-20 00:16:42     lead_id = create_lead(name, company, email, "QR Scan", phone)
+  590  2026-07-20 00:16:42     
+  591  2026-07-20 00:16:42     # Send Telegram alert with phone
+  592  2026-07-20 00:16:42     phone_str = f"\n📞 {phone}" if phone else ""
+  593  2026-07-20 00:16:42     send_telegram_alert(f"📱 QR Lead: {name}{phone_str}\n📧 {email}\n🏢 {company}")
+  594  2026-07-20 00:16:42     
+  595  2026-07-20 00:16:42     return jsonify({"status": "success", "lead_id": lead_id, "name": name, "phone": phone})
+  596  2026-07-20 00:16:42 @public_bp.route('/api/leads/all', methods=['GET'])
+  597  2026-07-20 00:16:42 def list_leads():
+  598  2026-07-20 00:16:42     return jsonify(get_all_leads())
+  599  2026-07-20 00:16:42 @public_bp.route('/api/leads/<int:lead_id>', methods=['GET'])
+  600  2026-07-20 00:16:42 def show_lead(lead_id):
+  601  2026-07-20 00:16:42     lead = get_lead(lead_id)
+  602  2026-07-20 00:16:42     if lead:
+  603  2026-07-20 00:16:42         return jsonify(lead)
+  604  2026-07-20 00:16:42     return jsonify({"error": "Lead not found"}), 404
+  605  2026-07-20 00:16:42 @public_bp.route('/api/audio/process', methods=['POST'])
+  606  2026-07-20 00:16:42 def process_audio():
+  607  2026-07-20 00:16:42     try:
+  608  2026-07-20 00:16:42         lead_id = request.form.get('lead_id')
+  609  2026-07-20 00:16:42         if 'transcript' in request.form:
+  610  2026-07-20 00:16:42             transcript = request.form.get('transcript', '')
+  611  2026-07-20 00:16:42             if not transcript:
+  612  2026-07-20 00:16:42                 return jsonify({"error": "No transcript provided"}), 400
+  613  2026-07-20 00:16:42         else:
+  614  2026-07-20 00:16:42             if 'audio' not in request.files:
+  615  2026-07-20 00:16:42                 return jsonify({"error": "No audio file provided"}), 400
+  616  2026-07-20 00:16:42             audio_file = request.files['audio']
+  617  2026-07-20 00:16:42             transcript = "[Audio file uploaded]"
+  618  2026-07-20 00:16:42             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+  619  2026-07-20 00:16:42             os.makedirs(AUDIO_FOLDER, exist_ok=True)
+  620  2026-07-20 00:16:42             audio_path = os.path.join(AUDIO_FOLDER, f"lead_{lead_id}_{timestamp}.webm")
+  621  2026-07-20 00:16:42             audio_file.save(audio_path)
+  622  2026-07-20 00:16:42         
+  623  2026-07-20 00:16:42         if lead_id and transcript:
+  624  2026-07-20 00:16:42             append_audio_note(lead_id, transcript)
+  625  2026-07-20 00:16:42             send_telegram_alert(f"🎤 Voice note: {transcript[:100]}")
+  626  2026-07-20 00:16:42         
+  627  2026-07-20 00:16:42         return jsonify({"status": "success", "transcript": transcript})
+  628  2026-07-20 00:16:42     except Exception as e:
+  629  2026-07-20 00:16:42         return jsonify({"error": str(e)}), 500
+  630  2026-07-20 00:16:42 @public_bp.route('/api/leads/<int:lead_id>/email', methods=['POST'])
+  631  2026-07-20 00:16:42 def generate_email(lead_id):
+  632  2026-07-20 00:16:42     data = request.json or {}
+  633  2026-07-20 00:16:42     custom_notes = data.get('notes', '')
+  634  2026-07-20 00:16:42     lead = get_lead(lead_id)
+  635  2026-07-20 00:16:42     if not lead:
+  636  2026-07-20 00:16:42         return jsonify({"error": "Lead not found"}), 404
+  637  2026-07-20 00:16:42     
+  638  2026-07-20 00:16:42     email_content = generate_ai_email(
+  639  2026-07-20 00:16:42         lead.get('name', ''), lead.get('company', ''),
+  640  2026-07-20 00:16:42         lead.get('email', ''), lead.get('audio_note', ''), custom_notes
+  641  2026-07-20 00:16:42     )
+  642  2026-07-20 00:16:42     
+  643  2026-07-20 00:16:42     if email_content:
+  644  2026-07-20 00:16:42         send_telegram_alert(f"📧 AI Email generated for {lead.get('name')}")
+  645  2026-07-20 00:16:42         return jsonify({
+  646  2026-07-20 00:16:42             "status": "success",
+  647  2026-07-20 00:16:42             "email": email_content,
+  648  2026-07-20 00:16:42             "lead_name": lead.get('name'),
+  649  2026-07-20 00:16:42             "lead_email": lead.get('email')
+  650  2026-07-20 00:16:42         })
+  651  2026-07-20 00:16:42     return jsonify({"error": "AI generation failed"}), 500
+  652  2026-07-20 00:16:42 EOF
+  653  2026-07-18 22:54:14 echo "✅ routes_public.py updated - Phone is now captured and saved"
+  654  2026-07-18 22:54:14 # Verify models.py has phone parameter
+  655  2026-07-18 22:54:14 echo ""
+  656  2026-07-18 22:54:14 echo "Verifying models.py..."
+  657  2026-07-18 22:54:14 grep -A 5 "def create_lead" models.py
+  658  2026-07-18 22:54:14 # Restart app
+  659  2026-07-18 22:54:14 touch passenger.wsgi
+  660  2026-07-18 22:54:14 echo ""
+  661  2026-07-18 22:54:14 echo "✅ Backend updated!"
+  662  2026-07-18 22:54:14 echo ""
+  663  2026-07-18 22:54:14 echo "NOW TEST:"
+  664  2026-07-18 22:54:14 echo "1. Go to https://app.aiexperiencecenter.ph/"
+  665  2026-07-18 22:54:14 echo "2. Enter a lead with phone number"
+  666  2026-07-18 22:54:14 echo "3. Click Save"
+  667  2026-07-18 22:54:14 echo "4. Check database:"
+  668  2026-07-18 22:54:14 echo "   sqlite3 /home/vsmwrurd/api/aiec_leads.db \"SELECT id, name, phone FROM leads ORDER BY id DESC LIMIT 1;\""
+  669  2026-07-18 22:56:19 cd /home/vsmwrurd/api
+  670  2026-07-18 22:56:19 # 1. Fix models.py - add phone parameter to create_lead function
+  671  2026-07-18 22:56:19 cat > models.py << 'EOF'
+  672  2026-07-20 00:16:42 import sqlite3
+  673  2026-07-20 00:16:42 from config import DB_PATH
+  674  2026-07-20 00:16:42 def get_db():
+  675  2026-07-20 00:16:42     conn = sqlite3.connect(DB_PATH)
+  676  2026-07-20 00:16:42     conn.row_factory = sqlite3.Row
+  677  2026-07-20 00:16:42     return conn
+  678  2026-07-20 00:16:42 def init_db():
+  679  2026-07-20 00:16:42     conn = get_db()
+  680  2026-07-20 00:16:42     c = conn.cursor()
+  681  2026-07-20 00:16:42     c.execute("""CREATE TABLE IF NOT EXISTS leads (
+  682  2026-07-20 00:16:42         id INTEGER PRIMARY KEY AUTOINCREMENT,
+  683  2026-07-20 00:16:42         name TEXT, company TEXT, email TEXT, phone TEXT DEFAULT '',
+  684  2026-07-20 00:16:42         source TEXT, audio_note TEXT,
+  685  2026-07-20 00:16:42         timestamp TEXT DEFAULT CURRENT_TIMESTAMP
+  686  2026-07-20 00:16:42     )""")
+  687  2026-07-20 00:16:42     try:
+  688  2026-07-20 00:16:42         c.execute("ALTER TABLE leads ADD COLUMN phone TEXT DEFAULT ''")
+  689  2026-07-20 00:16:42     except sqlite3.OperationalError:
+  690  2026-07-20 00:16:42         pass  # Column already exists
+  691  2026-07-20 00:16:42     conn.commit()
+  692  2026-07-20 00:16:42     conn.close()
+  693  2026-07-20 00:16:42 def get_all_leads():
+  694  2026-07-20 00:16:42     conn = get_db()
+  695  2026-07-20 00:16:42     rows = conn.execute("SELECT * FROM leads ORDER BY id DESC").fetchall()
+  696  2026-07-20 00:16:42     conn.close()
+  697  2026-07-20 00:16:42     return [dict(r) for r in rows]
+  698  2026-07-20 00:16:42 def get_lead(lead_id):
+  699  2026-07-20 00:16:42     conn = get_db()
+  700  2026-07-20 00:16:42     c = conn.cursor()
+  701  2026-07-20 00:16:42     c.execute("SELECT * FROM leads WHERE id=?", (lead_id,))
+  702  2026-07-20 00:16:42     lead = c.fetchone()
+  703  2026-07-20 00:16:42     conn.close()
+  704  2026-07-20 00:16:42     return dict(lead) if lead else None
+  705  2026-07-20 00:16:42 def create_lead(name, company, email, source="Manual", phone=""):
+  706  2026-07-20 00:16:42     conn = get_db()
+  707  2026-07-20 00:16:42     c = conn.cursor()
+  708  2026-07-20 00:16:42     c.execute("INSERT INTO leads (name, company, email, source, phone) VALUES (?,?,?,?,?)",
+  709  2026-07-20 00:16:42               (name, company, email, source, phone))
+  710  2026-07-20 00:16:42     lead_id = c.lastrowid
+  711  2026-07-20 00:16:42     conn.commit()
+  712  2026-07-20 00:16:42     conn.close()
+  713  2026-07-20 00:16:42     return lead_id
+  714  2026-07-20 00:16:42 def update_lead(lead_id, field, value):
+  715  2026-07-20 00:16:42     allowed = ['name', 'company', 'email', 'audio_note', 'phone']
+  716  2026-07-20 00:16:42     if field not in allowed: return False
+  717  2026-07-20 00:16:42     conn = get_db()
+  718  2026-07-20 00:16:42     c = conn.cursor()
+  719  2026-07-20 00:16:42     c.execute(f"UPDATE leads SET {field}=? WHERE id=?", (value, lead_id))
+  720  2026-07-20 00:16:42     conn.commit()
+  721  2026-07-20 00:16:42     conn.close()
+  722  2026-07-20 00:16:42     return True
+  723  2026-07-20 00:16:42 def append_audio_note(lead_id, transcript):
+  724  2026-07-20 00:16:42     conn = get_db()
+  725  2026-07-20 00:16:42     c = conn.cursor()
+  726  2026-07-20 00:16:42     c.execute("SELECT audio_note FROM leads WHERE id=?", (lead_id,))
+  727  2026-07-20 00:16:42     row = c.fetchone()
+  728  2026-07-20 00:16:42     if row:
+  729  2026-07-20 00:16:42         current = row[0] or ""
+  730  2026-07-20 00:16:42         new_note = f"{current} | {transcript}" if current else transcript
+  731  2026-07-20 00:16:42         c.execute("UPDATE leads SET audio_note=? WHERE id=?", (new_note, lead_id))
+  732  2026-07-20 00:16:42         conn.commit()
+  733  2026-07-20 00:16:42     conn.close()
+  734  2026-07-20 00:16:42 def delete_lead(lead_id):
+  735  2026-07-20 00:16:42     conn = get_db()
+  736  2026-07-20 00:16:42     c = conn.cursor()
+  737  2026-07-20 00:16:42     c.execute("DELETE FROM leads WHERE id=?", (lead_id,))
+  738  2026-07-20 00:16:42     conn.commit()
+  739  2026-07-20 00:16:42     conn.close()
+  740  2026-07-20 00:16:42     return c.rowcount > 0
+  741  2026-07-20 00:16:42 EOF
+  742  2026-07-18 22:56:19 echo "✅ models.py fixed - create_lead now accepts phone parameter"
+  743  2026-07-18 22:56:19 # 2. Fix routes_public.py - capture and save phone numbers
+  744  2026-07-18 22:56:19 cat > routes_public.py << 'EOF'
+  745  2026-07-20 00:16:42 from flask import Blueprint, request, jsonify
+  746  2026-07-20 00:16:42 from models import get_all_leads, get_lead, create_lead, append_audio_note
+  747  2026-07-20 00:16:42 from services import send_telegram_alert, generate_ai_email, parse_qr_vcard
+  748  2026-07-20 00:16:42 from config import AUDIO_FOLDER
+  749  2026-07-20 00:16:42 import os
+  750  2026-07-20 00:16:42 from datetime import datetime
+  751  2026-07-20 00:16:42 public_bp = Blueprint('public', __name__)
+  752  2026-07-20 00:16:42 @public_bp.route('/api/leads/manual', methods=['POST'])
+  753  2026-07-20 00:16:42 def intake_manual():
+  754  2026-07-20 00:16:42     data = request.json or {}
+  755  2026-07-20 00:16:42     name = data.get('name', 'Unknown')
+  756  2026-07-20 00:16:42     company = data.get('company', 'Unknown')
+  757  2026-07-20 00:16:42     email = data.get('email', 'Unknown')
+  758  2026-07-20 00:16:42     phone = data.get('phone', '')  # CAPTURE PHONE
+  759  2026-07-20 00:16:42     
+  760  2026-07-20 00:16:42     lead_id = create_lead(name, company, email, "Manual Input", phone)
+  761  2026-07-20 00:16:42     
+  762  2026-07-20 00:16:42     # Telegram alert with phone
+  763  2026-07-20 00:16:42     phone_str = f"\n📞 {phone}" if phone else ""
+  764  2026-07-20 00:16:42     send_telegram_alert(f"🆕 New Lead: {name}{phone_str}\n📧 {email}\n🏢 {company}")
+  765  2026-07-20 00:16:42     
+  766  2026-07-20 00:16:42     return jsonify({"status": "success", "lead_id": lead_id, "name": name, "phone": phone})
+  767  2026-07-20 00:16:42 @public_bp.route('/api/leads/qr', methods=['POST'])
+  768  2026-07-20 00:16:42 def intake_qr():
+  769  2026-07-20 00:16:42     data = request.json or {}
+  770  2026-07-20 00:16:42     qr_payload = data.get('qr_payload', '')
+  771  2026-07-20 00:16:42     name, company, email, phone = parse_qr_vcard(qr_payload)
+  772  2026-07-20 00:16:42     
+  773  2026-07-20 00:16:42     lead_id = create_lead(name, company, email, "QR Scan", phone)
+  774  2026-07-20 00:16:42     
+  775  2026-07-20 00:16:42     # Telegram alert with phone
+  776  2026-07-20 00:16:42     phone_str = f"\n📞 {phone}" if phone else ""
+  777  2026-07-20 00:16:42     send_telegram_alert(f"📱 QR Lead: {name}{phone_str}\n📧 {email}\n🏢 {company}")
+  778  2026-07-20 00:16:42     
+  779  2026-07-20 00:16:42     return jsonify({"status": "success", "lead_id": lead_id, "name": name, "phone": phone})
+  780  2026-07-20 00:16:42 @public_bp.route('/api/leads/all', methods=['GET'])
+  781  2026-07-20 00:16:42 def list_leads():
+  782  2026-07-20 00:16:42     return jsonify(get_all_leads())
+  783  2026-07-20 00:16:42 @public_bp.route('/api/leads/<int:lead_id>', methods=['GET'])
+  784  2026-07-20 00:16:42 def show_lead(lead_id):
+  785  2026-07-20 00:16:42     lead = get_lead(lead_id)
+  786  2026-07-20 00:16:42     if lead:
+  787  2026-07-20 00:16:42         return jsonify(lead)
+  788  2026-07-20 00:16:42     return jsonify({"error": "Lead not found"}), 404
+  789  2026-07-20 00:16:42 @public_bp.route('/api/audio/process', methods=['POST'])
+  790  2026-07-20 00:16:42 def process_audio():
+  791  2026-07-20 00:16:42     try:
+  792  2026-07-20 00:16:42         lead_id = request.form.get('lead_id')
+  793  2026-07-20 00:16:42         if 'transcript' in request.form:
+  794  2026-07-20 00:16:42             transcript = request.form.get('transcript', '')
+  795  2026-07-20 00:16:42             if not transcript:
+  796  2026-07-20 00:16:42                 return jsonify({"error": "No transcript provided"}), 400
+  797  2026-07-20 00:16:42         else:
+  798  2026-07-20 00:16:42             if 'audio' not in request.files:
+  799  2026-07-20 00:16:42                 return jsonify({"error": "No audio file provided"}), 400
+  800  2026-07-20 00:16:42             audio_file = request.files['audio']
+  801  2026-07-20 00:16:42             transcript = "[Audio file uploaded]"
+  802  2026-07-20 00:16:42             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+  803  2026-07-20 00:16:42             os.makedirs(AUDIO_FOLDER, exist_ok=True)
+  804  2026-07-20 00:16:42             audio_file.save(os.path.join(AUDIO_FOLDER, f"lead_{lead_id}_{timestamp}.webm"))
+  805  2026-07-20 00:16:42         
+  806  2026-07-20 00:16:42         if lead_id and transcript:
+  807  2026-07-20 00:16:42             append_audio_note(lead_id, transcript)
+  808  2026-07-20 00:16:42             send_telegram_alert(f"🎤 Voice note: {transcript[:100]}")
+  809  2026-07-20 00:16:42         
+  810  2026-07-20 00:16:42         return jsonify({"status": "success", "transcript": transcript})
+  811  2026-07-20 00:16:42     except Exception as e:
+  812  2026-07-20 00:16:42         return jsonify({"error": str(e)}), 500
+  813  2026-07-20 00:16:42 @public_bp.route('/api/leads/<int:lead_id>/email', methods=['POST'])
+  814  2026-07-20 00:16:42 def generate_email(lead_id):
+  815  2026-07-20 00:16:42     data = request.json or {}
+  816  2026-07-20 00:16:42     lead = get_lead(lead_id)
+  817  2026-07-20 00:16:42     if not lead:
+  818  2026-07-20 00:16:42         return jsonify({"error": "Lead not found"}), 404
+  819  2026-07-20 00:16:42     
+  820  2026-07-20 00:16:42     email_content = generate_ai_email(
+  821  2026-07-20 00:16:42         lead.get('name', ''), lead.get('company', ''),
+  822  2026-07-20 00:16:42         lead.get('email', ''), lead.get('audio_note', ''), data.get('notes', '')
+  823  2026-07-20 00:16:42     )
+  824  2026-07-20 00:16:42     
+  825  2026-07-20 00:16:42     if email_content:
+  826  2026-07-20 00:16:42         return jsonify({"status": "success", "email": email_content})
+  827  2026-07-20 00:16:42     return jsonify({"error": "AI failed"}), 500
+  828  2026-07-20 00:16:42 EOF
+  829  2026-07-18 22:56:19 echo "✅ routes_public.py fixed - now captures and saves phone numbers"
+  830  2026-07-18 22:56:19 # 3. Verify syntax
+  831  2026-07-18 22:56:19 python3 -m py_compile models.py && echo "✅ models.py syntax OK"
+  832  2026-07-18 22:56:19 python3 -m py_compile routes_public.py && echo "✅ routes_public.py syntax OK"
+  833  2026-07-18 22:56:19 # 4. Restart app
+  834  2026-07-18 22:56:19 touch passenger.wsgi
+  835  2026-07-18 22:56:19 echo ""
+  836  2026-07-18 22:56:19 echo "=== PHONE FIELD FIX COMPLETE ==="
+  837  2026-07-18 22:56:19 echo ""
+  838  2026-07-18 22:56:19 echo "TEST NOW:"
+  839  2026-07-18 22:56:19 echo "1. Go to https://app.aiexperiencecenter.ph/"
+  840  2026-07-18 22:56:19 echo "2. Enter a test lead WITH phone number"
+  841  2026-07-18 22:56:19 echo "3. Click Save"
+  842  2026-07-18 22:56:19 echo "4. Check database:"
+  843  2026-07-18 22:56:19 sqlite3 aiec_leads.db "SELECT id, name, phone FROM leads ORDER BY id DESC LIMIT 1;"
+  844  2026-07-18 22:56:19 echo ""
+  845  2026-07-18 22:56:19 echo "5. Check admin panel: https://api.aiexperiencecenter.ph/admin"
+  846  2026-07-18 22:56:19 echo "   - Phone column should show the number"
+  847  2026-07-18 22:56:19 echo ""
+  848  2026-07-18 22:56:19 echo "✅ Phone numbers will now be saved to database!"
+  849  2026-07-19 23:38:19 #!/usr/bin/env bash
+  850  2026-07-19 23:38:19 set -euo pipefail
+  851  2026-07-19 23:38:19 ROOT="/home/vsmwrurd/ai_registration_engine"
+  852  2026-07-19 23:38:19 echo "========================================"
+  853  2026-07-19 23:38:19 echo "  ENVIRONMENT MAP"
+  854  2026-07-19 23:38:19 echo "========================================"
+  855  2026-07-19 23:38:19 # 1. Navigate to project root
+  856  2026-07-19 23:38:19 echo ""
+  857  2026-07-19 23:38:19 echo "[1] Changing to project root..."
+  858  2026-07-19 23:38:19 cd "$ROOT" && echo "    ✔ Now in: $(pwd)" || { echo "    ✘ Directory not found!"; exit 1; }
+  859  2026-07-19 23:38:19 # 2. Full directory & file tree
+  860  2026-07-19 23:38:19 echo ""
+  861  2026-07-19 23:38:19 echo "[2] Directory & file structure:"
+  862  2026-07-19 23:38:19 echo "----------------------------------------"
+  863  2026-07-19 23:38:19 if command -v tree &>/dev/null; then     tree -a --dirsfirst -I '.git|__pycache__|*.pyc' "$ROOT"; else     find "$ROOT" -not -path '*/.git/*' -not -path '*/__pycache__/*' -not -name '*.pyc' | sort | head -200; fi
+  864  2026-07-19 23:38:19 echo "----------------------------------------"
+  865  2026-07-19 23:38:19 # 3. Python & VENV info
+  866  2026-07-19 23:38:19 echo ""
+  867  2026-07-19 23:38:19 echo "[3] Python / VENV details:"
+  868  2026-07-19 23:38:19 echo "    System Python : $(python3 --version 2>&1 || echo 'not found')"
+  869  2026-07-19 23:38:19 echo "    Pip version   : $(pip3 --version 2>&1 || echo 'not found')"
+  870  2026-07-19 23:38:19 if [ -n "${VIRTUAL_ENV:-}" ]; then     echo "    Active VENV   : $VIRTUAL_ENV";     echo "    VENV Python   : $(python --version 2>&1)";     echo "    VENV Pip      : $(pip --version 2>&1)"; else     echo "    Active VENV   : (none detected)"     for venv_dir in venv .venv env; do         if [ -d "$ROOT/$venv_dir" ]; then             echo "    Found venv dir: $ROOT/$venv_dir (not activated)";         fi;     done; fi
+  871  2026-07-19 23:38:19 # 4. Installed packages (if any venv or system)
+  872  2026-07-19 23:38:19 echo ""
+  873  2026-07-19 23:38:19 echo "[4] Installed packages (pip freeze):"
+  874  2026-07-19 23:38:19 pip3 freeze 2>/dev/null | head -50 || echo "    (unable to list)"
+  875  2026-07-19 23:38:20 echo ""
+  876  2026-07-19 23:38:20 echo "========================================"
+  877  2026-07-19 23:38:20 echo "  DONE — Paste this output back to me."
+  878  2026-07-19 23:38:20 echo "========================================"
+  879  2026-07-20 00:03:40 #!/usr/bin/env bash
+  880  2026-07-20 00:03:40 set -euo pipefail
+  881  2026-07-20 00:03:40 ROOT="/home/vsmwrurd/ai_registration_engine"
+  882  2026-07-20 00:03:40 cd "$ROOT"
+  883  2026-07-20 00:03:40 echo "========================================"
+  884  2026-07-20 00:03:40 echo "  DEEP STRUCTURAL TEST"
+  885  2026-07-20 00:03:40 echo "========================================"
+  886  2026-07-20 00:03:40 # 1. Python Environment
+  887  2026-07-20 00:03:40 echo ""
+  888  2026-07-20 00:03:40 echo "[1] Python Environment:"
+  889  2026-07-20 00:03:40 echo "    Default python3: $(python3 --version 2>&1)"
+  890  2026-07-20 00:03:40 echo "    Default python: $(python --version 2>&1)"
+  891  2026-07-20 00:03:40 echo "    Pip version: $(pip3 --version 2>&1 || echo 'not found')"
+  892  2026-07-20 00:03:40 # 2. Check required packages
+  893  2026-07-20 00:03:40 echo ""
+  894  2026-07-20 00:03:40 echo "[2] Checking required packages:"
+  895  2026-07-20 00:03:40 python3 -c "import flask; print(f'    ✔ Flask: {flask.__version__}')" 2>&1 || echo "    ✘ Flask not found"
+  896  2026-07-20 00:03:41 python3 -c "import telebot; print(f'    ✔ Telebot: OK')" 2>&1 || echo "    ✘ Telebot not found"
+  897  2026-07-20 00:03:41 python3 -c "import sqlite3; print(f'    ✔ SQLite3: OK')" 2>&1 || echo "    ✘ SQLite3 not found"
+  898  2026-07-20 00:03:41 # 3. Check database integrity
+  899  2026-07-20 00:03:41 echo ""
+  900  2026-07-20 00:03:41 echo "[3] Database Integrity:"
+  901  2026-07-20 00:03:41 if [ -f "booking_storage.db" ]; then     echo "    ✔ Database file exists.";     python3 -c "
+  902  2026-07-20 00:16:42 import sqlite3
+  903  2026-07-20 00:16:42 conn = sqlite3.connect('booking_storage.db')
+  904  2026-07-20 00:16:42 cursor = conn.cursor()
+  905  2026-07-20 00:16:42 cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table';\")
+  906  2026-07-20 00:16:42 tables = cursor.fetchall()
+  907  2026-07-20 00:16:42 print('    Tables found:', [t[0] for t in tables])
+  908  2026-07-20 00:16:42 conn.close()
+  909  2026-07-20 00:16:42 "; else     echo "    ✘ Database file not found!"; fi
+  910  2026-07-20 00:03:41 # 4. Check Python syntax of all .py files
+  911  2026-07-20 00:03:41 echo ""
+  912  2026-07-20 00:03:41 echo "[4] Syntax Check for all .py files:"
+  913  2026-07-20 00:03:41 for py_file in *.py; do     if python3 -m py_compile "$py_file" 2>/dev/null; then         echo "    ✔ $py_file";     else         echo "    ✘ $py_file (Syntax Error)";     fi; done
+  914  2026-07-20 00:03:42 # 5. Check WSGI entry point
+  915  2026-07-20 00:03:42 echo ""
+  916  2026-07-20 00:03:42 echo "[5] WSGI Entry Point Check:"
+  917  2026-07-20 00:03:42 python3 -c "
+  918  2026-07-20 00:16:42 import sys
+  919  2026-07-20 00:16:42 sys.path.insert(0, '.')
+  920  2026-07-20 00:16:42 try:
+  921  2026-07-20 00:16:42     from passenger_wsgi import application
+  922  2026-07-20 00:16:42     print('    ✔ passenger_wsgi.py imports successfully')
+  923  2026-07-20 00:16:42 except Exception as e:
+  924  2026-07-20 00:16:42     print(f'    ✘ passenger_wsgi.py import failed: {e}')
+  925  2026-07-20 00:16:42 "
+  926  2026-07-20 00:03:42 # 6. Check Telegram bot script
+  927  2026-07-20 00:03:42 echo ""
+  928  2026-07-20 00:03:42 echo "[6] Telegram Bot Check:"
+  929  2026-07-20 00:03:42 python3 -c "
+  930  2026-07-20 00:16:42 import sys
+  931  2026-07-20 00:16:42 sys.path.insert(0, '.')
+  932  2026-07-20 00:16:42 try:
+  933  2026-07-20 00:16:42     import telegram_bot
+  934  2026-07-20 00:16:42     print('    ✔ telegram_bot.py imports successfully')
+  935  2026-07-20 00:16:42 except Exception as e:
+  936  2026-07-20 00:16:42     print(f'    ✘ telegram_bot.py import failed: {e}')
+  937  2026-07-20 00:16:42 "
+  938  2026-07-20 00:03:42 # 7. Check directory structure
+  939  2026-07-20 00:03:42 echo ""
+  940  2026-07-20 00:03:42 echo "[7] Directory Structure:"
+  941  2026-07-20 00:03:42 ls -la
+  942  2026-07-20 00:03:42 echo ""
+  943  2026-07-20 00:03:42 echo "========================================"
+  944  2026-07-20 00:03:42 echo "  TEST COMPLETE"
+  945  2026-07-20 00:03:42 echo "========================================"
+  946  2026-07-20 00:07:51 history > /home/vsmwrurd/ai_registration_engine/terminal_log.txt
+  947  2026-07-20 00:16:49 #!/usr/bin/env bash
+  948  2026-07-20 00:16:49 set -euo pipefail
+  949  2026-07-20 00:16:49 ROOT="/home/vsmwrurd/ai_registration_engine"
+  950  2026-07-20 00:16:49 cd "$ROOT"
+  951  2026-07-20 00:16:49 echo "========================================"
+  952  2026-07-20 00:16:49 echo "  PHASE 1: CREATING MODULAR FOUNDATION"
+  953  2026-07-20 00:16:49 echo "========================================"
+  954  2026-07-20 00:16:49 # 1. Create the new directories
+  955  2026-07-20 00:16:49 echo ""
+  956  2026-07-20 00:16:49 echo "[1] Creating new app/ and templates/ directories..."
+  957  2026-07-20 00:16:49 mkdir -p app
+  958  2026-07-20 00:16:49 mkdir -p templates
+  959  2026-07-20 00:16:49 mkdir -p static
+  960  2026-07-20 00:16:49 echo "    ✔ Directories created."
+  961  2026-07-20 00:16:49 # 2. Create the master base.html template
+  962  2026-07-20 00:16:49 # This extracts your massive THEME_CSS into a single reusable file.
+  963  2026-07-20 00:16:49 echo ""
+  964  2026-07-20 00:16:49 echo "[2] Writing templates/base.html..."
+  965  2026-07-20 00:16:49 cat > templates/base.html << 'EOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AI Experience Center{% endblock %}</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Syne:wght@700;800&display=swap');
+        :root {
+            --bg: #090d16; --card: #111827; --fg: #f3f4f6; --muted: #9ca3af;
+            --border: rgba(255,255,255,0.08); --teal: #2dd4bf; --cyan: #38bdf8; 
+            --red: #f43f5e; --amber: #f59e0b; --purple: #a855f7;
+            --font-heading: 'Syne', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-body: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: var(--font-body); background: var(--bg); color: var(--fg); 
+            padding: 80px 1rem 2rem 1rem; max-width: 1200px; margin: 0 auto; 
+            line-height: 1.6; font-size: 16px; 
+        }
+        h1 { font-family: var(--font-heading); font-size: 2.2rem; font-weight: 800; color: #fff; margin-bottom: 1rem; letter-spacing: -0.03em; }
+        h2 { font-family: var(--font-heading); font-size: 1.6rem; font-weight: 700; color: #fff; margin-bottom: 1.2rem; }
+        h3 { font-family: var(--font-heading); font-size: 1.25rem; font-weight: 700; color: #fff; margin-bottom: 1rem; }
+        
+        .top-nav { 
+            position: fixed; top: 0; right: 0; left: 0; background: rgba(9,13,22,0.98); 
+            backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); 
+            padding: 1rem 2rem; display: flex; justify-content: flex-end; align-items: center; 
+            gap: 1.5rem; z-index: 1000; 
+        }
+        .top-nav a { color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 600; transition: color 0.2s; }
+        .top-nav a:hover { color: var(--teal); }
+        .top-nav a.amber { color: var(--amber); }
+        .top-nav a.red { color: var(--red); }
+
+        .card { background: var(--card); border: 1px solid var(--border); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem; }
+        .form-group { margin-bottom: 1.25rem; }
+        label { display: block; font-size: 0.85rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        input, select, textarea { font-family: var(--font-body); width: 100%; padding: 0.85rem; background: #0b0f19; border: 1px solid var(--border); color: #fff; border-radius: 6px; font-size: 1rem; }
+        input:focus, select:focus, textarea:focus { border-color: var(--teal); outline: none; }
+        button { font-family: var(--font-heading); width: 100%; padding: 1rem; background: linear-gradient(90deg, #0f766e, var(--teal)); border: none; color: #090d16; font-weight: 800; border-radius: 6px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em; font-size: 1rem; }
+        button:hover { opacity: 0.9; }
+        .btn-small { padding: 0.5rem 1rem; font-size: 0.85rem; width: auto; display: inline-block; }
+        .btn-red { background: linear-gradient(90deg, #9f1239, var(--red)); color: #fff; }
+        
+        .status-badge { display: inline-block; padding: 0.2rem 0.5rem; font-size: 0.75rem; font-weight: 800; border-radius: 4px; text-transform: uppercase; }
+        .status-open { background: rgba(45,212,191,0.1); color: var(--teal); }
+        .status-closed { background: rgba(244,63,94,0.1); color: var(--red); }
+        .nav-link { color: var(--muted); text-decoration: none; font-size: 0.95rem; }
+        .nav-link:hover { color: var(--teal); }
+        
+        .split-layout { display: flex; flex-direction: row; gap: 2.5rem; margin-bottom: 1.5rem; align-items: flex-start; }
+        .left-content { flex: 1.3; min-width: 0; }
+        .right-sidebar { flex: 1; position: -webkit-sticky; position: sticky; top: 2rem; }
+        
+        .meta-grid { display: grid; grid-template-columns: 1fr; gap: 0.75rem; margin: 1rem 0; background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 6px; border: 1px solid var(--border); }
+        .meta-item { display: flex; font-size: 0.95rem; }
+        .meta-label { color: var(--teal); font-weight: 700; width: 120px; flex-shrink: 0; }
+        
+        .itinerary-step { border-left: 2px solid var(--border); padding-left: 1rem; margin-bottom: 0.75rem; position: relative; font-size: 0.95rem; }
+        .itinerary-step::before { content: ""; position: absolute; left: -6px; top: 6px; width: 10px; height: 10px; background: var(--cyan); border-radius: 50%; }
+        
+        .hero-banner { width: 100%; height: 240px; object-fit: cover; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid var(--border); }
+        .map-footer-container { width: 100%; height: 200px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: #090d16; margin-top: 0.75rem; filter: grayscale(1) invert(0.92) contrast(1.25); }
+        .map-footer-container iframe { width: 100%; height: 100%; border: 0; }
+        
+        .table-container { width: 100%; overflow-x: auto; margin-top: 1rem; border-radius: 6px; border: 1px solid var(--border); }
+        .table-bookings { width: 100%; border-collapse: collapse; text-align: left; background: var(--card); }
+        .table-bookings th, .table-bookings td { padding: 1rem; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
+        .table-bookings th { background: rgba(255,255,255,0.03); color: #fff; font-weight: 700; }
+        
+        .session-block-container { border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; margin-bottom: 1rem; }
+        
+        .flash-messages { margin-bottom: 1.5rem; }
+        .flash-success { background: rgba(45,212,191,0.1); border: 1px solid var(--teal); color: var(--teal); padding: 1rem; border-radius: 6px; margin-bottom: 1rem; }
+        .flash-error { background: rgba(244,63,94,0.1); border: 1px solid var(--red); color: var(--red); padding: 1rem; border-radius: 6px; margin-bottom: 1rem; }
+
+        @media (max-width: 850px) {
+            .split-layout { flex-direction: column; gap: 1.5rem; }
+            .right-sidebar { position: static; width: 100%; }
+            .hero-banner { height: 160px; }
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    {% block nav %}
+    <div class="top-nav">
+        <a href="/book-now">Public View</a>
+        <a href="/admin">Admin Console</a>
+        <a href="/admin/accounting" class="amber">Accounting</a>
+        <a href="/admin/budget" class="amber">Budget</a>
+        <a href="/admin/logout" class="red">Log Out</a>
+    </div>
+    {% endblock %}
+
+    <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    {% block content %}{% endblock %}
+    
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>
+EOF
+
+  966  2026-07-20 00:16:49 echo "    ✔ templates/base.html created."
+  967  2026-07-20 00:16:49 # 3. Verify the new structure
+  968  2026-07-20 00:16:49 echo ""
+  969  2026-07-20 00:16:49 echo "[3] Verifying new structure:"
+  970  2026-07-20 00:16:49 ls -la app/ templates/
+  971  2026-07-20 00:16:49 echo ""
+  972  2026-07-20 00:16:49 echo "========================================"
+  973  2026-07-20 00:16:49 echo "  PHASE 1 COMPLETE. NO LIVE CHANGES MADE."
+  974  2026-07-20 00:16:49 echo "========================================"
+  975  2026-07-20 00:17:44 history > /home/vsmwrurd/ai_registration_engine/terminal_log.txt

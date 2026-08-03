@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}{{ program.title if program else 'AI Experience Center' }}{% endblock %}
+
+{% block nav %}
+<div class="top-nav">
+    <a href="/admin">Admin Login</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="split-layout">
+    <div class="left-content">
+        {% if program and program.header_img %}
+        <img class="hero-banner" src="{{ program.header_img }}" alt="Program Header">
+        {% endif %}
+        
+        <h1>{{ program.title if program else 'AI Experience Center: Live Production Lab' }}</h1>
+        <p style="margin-bottom:1.5rem; color:var(--muted);">
+            {{ program.description if program else 'Step out of the sandboxes. Deploy, stress-test, and orchestrate production-grade AI systems alongside elite engineering peers in a hardened production environment.' }}
+        </p>
+        
+        {% if program and program.expectations %}
+        <h3>What You Will Architect</h3>
+        <ul style="padding-left:1.25rem; margin-bottom:1.5rem; color:var(--fg);">
+            {% for item in program.expectations.split(';') %}
+                {% if item.strip() %}
+                <li style="margin-bottom:0.5rem;">{{ item.strip() }}</li>
+                {% endif %}
+            {% endfor %}
+        </ul>
+        {% endif %}
+        
+        <h2 style="margin-top:2rem; border-top:1px solid var(--border); padding-top:1.5rem;">Available Session Timetables</h2>
+        
+        {% if dates %}
+            {% for cohort in dates %}
+            <div class="session-block-container">
+                <h3 style="color:var(--cyan); margin-bottom:0.25rem;">{{ cohort.label or cohort.date_key }}</h3>
+                <div class="meta-grid">
+                    {% if cohort.lab %}
+                    <div class="meta-item">
+                        <span class="meta-label">Lab Focus:</span>
+                        <span style="color:var(--cyan);">{{ cohort.lab }}</span>
+                    </div>
+                    {% endif %}
+                    <div class="meta-item">
+                        <span class="meta-label">Venue:</span>
+                        <span>{{ cohort.venue or 'AI Experience Center Main Lab' }}</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Schedule:</span>
+                        <span>{{ (cohort.time_window or '').split('||')[0] if '||' in (cohort.time_window or '') else cohort.time_window }}</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Session Fee:</span>
+                        <span style="color:var(--teal); font-weight:700;">{{ (cohort.price_cents or 0) / 100.0:,.2f }}</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Availability:</span>
+                        <span>{{ (cohort.cap or 15) - (cohort.booked or 0) }} seats remaining / {{ cohort.cap or 15 }} limit</span>
+                    </div>
+                </div>
+                
+                {% if cohort.itinerary %}
+                {% for step in cohort.itinerary.split('\n') %}
+                    {% if step.strip() %}
+                    <div class="itinerary-step">{{ step.strip() }}</div>
+                    {% endif %}
+                {% endfor %}
+                {% endif %}
+                
+                {% if cohort.map_address %}
+                <div class="map-footer-container">
+                    <iframe src="https://maps.google.com/maps?q={{ cohort.map_address }}&t=&z=13&ie=UTF8&iwloc=&output=embed"></iframe>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+        <p style="color:var(--muted); margin-top:2rem;">No active engineering sessions scheduled at this time.</p>
+        {% endif %}
+    </div>
+    
+    <div class="right-sidebar">
+        <div class="card">
+            <h2>Pre-Register</h2>
+            <form method="POST" action="/book-now">
+                <input type="hidden" name="action" value="book">
+                <div class="form-group">
+                    <label>Target Session Date</label>
+                    <select name="date" required>
+                        {% if dates %}
+                            {% for v in dates %}
+                                {% if (v.booked or 0) < (v.cap or 15) %}
+                                <option value="{{ v.date_key }}">{{ v.label or v.date_key }}</option>
+                                {% endif %}
+                            {% endfor %}
+                        {% else %}
+                        <option value="">No sessions available</option>
+                        {% endif %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Full Name</label>
+                    <input type="text" name="name" required>
+                </div>
+                <div class="form-group">
+                    <label>Email Address</label>
+                    <input type="email" name="email" required>
+                </div>
+                <div class="form-group">
+                    <label>Phone Contact</label>
+                    <input type="text" name="phone" required>
+                </div>
+                <div class="form-group">
+                    <label>{{ program.q1_label if program and program.q1_label else 'What is the single biggest operational bottleneck in your current business, freelancing, or career that you intend to solve using AI?' }}</label>
+                    <textarea name="a1" rows="4" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label>{{ program.q2_label if program and program.q2_label else 'Briefly describe your current business model, profession, or target niche framework.' }}</label>
+                    <textarea name="a2" rows="4" required></textarea>
+                </div>
+                <button type="submit">Submit Application</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

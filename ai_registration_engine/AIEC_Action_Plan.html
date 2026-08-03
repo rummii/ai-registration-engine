@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIEC — Action Plan / Call Sheet</title>
+<style>
+  :root{
+    --ink:#161412;
+    --paper:#f4f1e9;
+    --panel:#fbfaf6;
+    --line:#d8d2c4;
+    --hazard:#f5c518;       /* game-of-death yellow */
+    --hazard-deep:#caa200;
+    --muted:#7a7466;
+    --go:#2f7d4f;
+    --wip:#b8860b;
+    --block:#b3402f;
+    --idle:#9a9486;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0;
+    background:
+      repeating-linear-gradient(45deg,var(--ink) 0 22px,#241f1a 22px 44px) fixed;
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.45;
+    padding:28px 16px 80px;
+  }
+  .sheet{
+    max-width:1180px;margin:0 auto;background:var(--paper);
+    border:1px solid #000;box-shadow:0 24px 60px rgba(0,0,0,.5);
+  }
+  /* ---------- slate header ---------- */
+  header.slate{
+    background:var(--ink);color:var(--paper);
+    border-bottom:6px solid var(--hazard);
+    padding:22px 30px 18px;
+    position:relative;
+  }
+  .clap{
+    font-family:"Arial Narrow","Helvetica Neue Condensed",Helvetica,sans-serif;
+    font-stretch:condensed;
+    letter-spacing:.14em;text-transform:uppercase;
+  }
+  header.slate h1{
+    margin:0;font-size:30px;font-weight:800;
+    font-family:"Arial Narrow","Helvetica Neue",Helvetica,sans-serif;
+    letter-spacing:.06em;text-transform:uppercase;
+  }
+  header.slate h1 b{color:var(--hazard);}
+  .subline{color:#cfc8b8;font-size:12.5px;letter-spacing:.18em;text-transform:uppercase;margin-top:5px;}
+  .slate-meta{
+    display:flex;flex-wrap:wrap;gap:10px;margin-top:16px;
+  }
+  .chip-date{
+    background:#241f1a;border:1px solid #3a342c;border-left:3px solid var(--hazard);
+    padding:7px 12px;font-size:12px;color:#e8e2d4;
+  }
+  .chip-date strong{display:block;color:var(--hazard);font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:2px;}
+  .chip-date span{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px;color:#fff;}
+
+  /* ---------- toolbar ---------- */
+  .toolbar{
+    display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+    background:var(--panel);border-bottom:1px solid var(--line);
+    padding:10px 30px;font-size:12px;color:var(--muted);
+  }
+  .toolbar .spacer{flex:1;}
+  button.tool{
+    font:inherit;font-size:12px;cursor:pointer;
+    background:var(--ink);color:var(--paper);border:none;
+    padding:8px 14px;letter-spacing:.08em;text-transform:uppercase;
+  }
+  button.tool:hover{background:var(--hazard);color:var(--ink);}
+  button.tool.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
+  button.tool.ghost:hover{background:var(--ink);color:var(--paper);}
+  .saved{font-family:ui-monospace,monospace;font-size:11px;}
+
+  /* ---------- legend ---------- */
+  .legend{display:flex;flex-wrap:wrap;gap:14px;padding:12px 30px;border-bottom:1px solid var(--line);font-size:11.5px;color:var(--muted);align-items:center;}
+  .legend b{color:var(--ink);letter-spacing:.1em;text-transform:uppercase;font-size:11px;}
+  .key{display:inline-flex;align-items:center;gap:6px;}
+  .dot{width:11px;height:11px;border-radius:50%;display:inline-block;}
+  .d-go{background:var(--go);}.d-wip{background:var(--wip);}.d-block{background:var(--block);}.d-idle{background:var(--idle);}
+
+  /* ---------- workstream blocks ---------- */
+  section.ws{padding:6px 30px 0;}
+  .ws-head{
+    display:flex;align-items:baseline;gap:14px;margin:26px 0 8px;
+    border-bottom:2px solid var(--ink);padding-bottom:6px;
+  }
+  .ws-no{
+    font-family:ui-monospace,Menlo,monospace;font-size:13px;font-weight:700;
+    background:var(--ink);color:var(--hazard);padding:3px 9px;letter-spacing:.05em;
+  }
+  .ws-title{font-size:17px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;
+    font-family:"Arial Narrow","Helvetica Neue",Helvetica,sans-serif;}
+  .ws-note{font-size:12px;color:var(--muted);margin-left:auto;font-style:italic;}
+
+  table{width:100%;border-collapse:collapse;margin-bottom:8px;}
+  thead th{
+    font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
+    text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-weight:700;
+  }
+  tbody td{
+    padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13.5px;
+  }
+  tbody tr:hover{background:#efeadd;}
+  td.task{width:42%;}
+  td.owner{width:13%;}
+  td.due{width:14%;}
+  td.status{width:14%;}
+  td.notes{width:17%;color:var(--muted);font-size:12.5px;}
+
+  [contenteditable]{outline:none;}
+  [contenteditable]:focus{background:#fff;box-shadow:inset 0 0 0 2px var(--hazard);border-radius:2px;}
+  .owner-tag{
+    font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:700;
+    padding:2px 7px;border-radius:2px;letter-spacing:.04em;white-space:nowrap;display:inline-block;
+  }
+  .o-jeff{background:#fbe7a8;color:#5a4500;}
+  .o-rob{background:#cfe3d6;color:#1d4a30;}
+  .o-p3{background:#d8d9ec;color:#2c2f63;}
+  .o-all{background:#e6ddc9;color:#5a4f33;}
+  .due-cell{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;}
+
+  select.st{
+    font:inherit;font-size:12px;font-weight:700;border:1px solid var(--line);
+    background:#fff;padding:5px 6px;cursor:pointer;border-radius:2px;width:100%;
+    text-transform:uppercase;letter-spacing:.04em;
+  }
+  select.st[data-v="done"]{color:var(--go);border-color:var(--go);}
+  select.st[data-v="wip"]{color:var(--wip);border-color:var(--wip);}
+  select.st[data-v="block"]{color:var(--block);border-color:var(--block);background:#fbeae6;}
+  select.st[data-v="idle"]{color:var(--idle);}
+
+  /* ---------- risk strip ---------- */
+  .risk{
+    margin:30px 30px 0;background:#241f1a;color:#f0ead9;border-left:5px solid var(--block);
+    padding:16px 20px;
+  }
+  .risk h3{margin:0 0 10px;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--hazard);}
+  .risk ul{margin:0;padding-left:18px;}
+  .risk li{font-size:13px;margin-bottom:6px;}
+  .risk li b{color:#fff;}
+
+  footer.foot{padding:22px 30px 30px;font-size:11px;color:var(--muted);}
+  footer.foot .add{margin-bottom:14px;}
+
+  @media print{
+    body{background:#fff;padding:0;}
+    .sheet{box-shadow:none;border:none;max-width:none;}
+    .toolbar{display:none;}
+    tbody tr:hover{background:none;}
+    select.st{border:none;-webkit-appearance:none;appearance:none;padding:0;}
+    .risk{background:#fff;color:#000;border-left:5px solid #000;}
+    .risk h3,.risk li b{color:#000;}
+    header.slate{background:#fff;color:#000;border-bottom:4px solid #000;}
+    header.slate h1 b,.chip-date strong{color:#000;}
+    .chip-date{background:#fff;border:1px solid #000;}
+    .chip-date span,.ws-no{color:#000;background:#eee;}
+  }
+  @media (max-width:720px){
+    td.task,td.owner,td.due,td.status,td.notes{display:block;width:100%;}
+    tbody td{border-bottom:none;padding:4px 8px;}
+    tbody tr{display:block;border-bottom:2px solid var(--line);padding:8px 0;}
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <header class="slate">
+    <div class="clap" style="font-size:11px;color:var(--hazard);">▮▮ AI EXPERIENCE CENTER PH ▮▮ PRODUCTION CALL SHEET</div>
+    <h1>Action Plan — <b>Launch Cohort 01</b></h1>
+    <div class="subline">From conceptualization → execution &nbsp;·&nbsp; Sessions Jun 21 + Jun 28</div>
+    <div class="slate-meta">
+      <div class="chip-date"><strong>Move-in / Reno</strong><span>JUL 16</span></div>
+      <div class="chip-date"><strong>Pre-sale opens</strong><span>JUL (wk 1)</span></div>
+      <div class="chip-date"><strong>Jeff returns</strong><span>AUG 10</span></div>
+      <div class="chip-date"><strong>Cohort 01 (Sat)</strong><span>AUG 16</span></div>
+      <div class="chip-date"><strong>Prep buffer</strong><span>5 DAYS</span></div>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <button class="tool" onclick="window.print()">⎙ Print / PDF</button>
+    <button class="tool ghost" onclick="saveNow()">Save edits</button>
+    <button class="tool ghost" onclick="resetAll()">Reset</button>
+    <span class="spacer"></span>
+    <span class="saved" id="savedNote">Edits save automatically in this browser.</span>
+  </div>
+
+  <div class="legend">
+    <b>Status key</b>
+    <span class="key"><span class="dot d-idle"></span>Not started</span>
+    <span class="key"><span class="dot d-wip"></span>In progress</span>
+    <span class="key"><span class="dot d-go"></span>Done</span>
+    <span class="key"><span class="dot d-block"></span>Blocked</span>
+    <b style="margin-left:18px;">Owners</b>
+    <span class="key"><span class="owner-tag o-jeff">JEFF</span></span>
+    <span class="key"><span class="owner-tag o-rob">ROBSON</span></span>
+    <span class="key"><span class="owner-tag o-p3">P3</span></span>
+    <span class="key"><span class="owner-tag o-all">ALL</span></span>
+    <span style="margin-left:auto;font-style:italic;">Every cell is editable — click to type.</span>
+  </div>
+
+  <!-- ============ 0 — SIGN-OFF ============ -->
+  <section class="ws">
+    <div class="ws-head">
+      <span class="ws-no">00</span>
+      <span class="ws-title">Lock the deal</span>
+      <span class="ws-note">Biggest dispute risk — close before Jul 16</span>
+    </div>
+    <table>
+      <thead><tr><th>Task</th><th>Owner</th><th>Due</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="task" contenteditable>One-page partner agreement: hybrid cap split + 3-way renovation split, signed by all three</td>
+          <td class="owner"><span class="owner-tag o-rob" contenteditable>ROBSON</span></td>
+          <td class="due due-cell" contenteditable>Jul 14</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Verbal only so far. "Lock the hybrid before it's a dispute."</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Running expense ledger created (every peso in/out, sheet always balances)</td>
+          <td class="owner"><span class="owner-tag o-p3" contenteditable>P3</span></td>
+          <td class="due due-cell" contenteditable>Jul 14</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Shared sheet, all partners can view.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Tick + sign the agreed items from this meeting (the checklist Robson asked for)</td>
+          <td class="owner"><span class="owner-tag o-all" contenteditable>ALL</span></td>
+          <td class="due due-cell" contenteditable>Next mtg</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 1 — CAPITAL ============ -->
+  <section class="ws">
+    <div class="ws-head">
+      <span class="ws-no">01</span>
+      <span class="ws-title">Capitalization</span>
+      <span class="ws-note">Hybrid — ₱150k pot is dead</span>
+    </div>
+    <table>
+      <thead><tr><th>Task</th><th>Owner</th><th>Due</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="task" contenteditable>Each partner contributes ~₱17,000 → ~₱50k to open shared bank account</td>
+          <td class="owner"><span class="owner-tag o-all" contenteditable>ALL</span></td>
+          <td class="due due-cell" contenteditable>On paperwork</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Bank min ~₱50k. Replaces 50k-each plan.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Open business bank account</td>
+          <td class="owner"><span class="owner-tag o-rob" contenteditable>ROBSON</span></td>
+          <td class="due due-cell" contenteditable>Jul</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>After SEC paperwork done.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Agree renovation budget + confirm 3-way split (landlord wants ≥⅓ from others)</td>
+          <td class="owner"><span class="owner-tag o-all" contenteditable>ALL</span></td>
+          <td class="due due-cell" contenteditable>Jul 12</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Basic reno only. AIEC pays, not landlord alone.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 2 — OFFICE / SPACE ============ -->
+  <section class="ws">
+    <div class="ws-head">
+      <span class="ws-no">02</span>
+      <span class="ws-title">Office &amp; renovation</span>
+      <span class="ws-note">Base = upstairs unit + bodega</span>
+    </div>
+    <table>
+      <thead><tr><th>Task</th><th>Owner</th><th>Due</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="task" contenteditable>Confirm upstairs lease ~₱21k/mo w/ bodega + VAT + assoc. dues (₱5,202 pro-rated)</td>
+          <td class="owner"><span class="owner-tag o-rob" contenteditable>ROBSON</span></td>
+          <td class="due due-cell" contenteditable>Jul 10</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Robson to finalize exact line items.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Move in + start renovation (clear shelves, keep 1 top shelf for filing/contracts)</td>
+          <td class="owner"><span class="owner-tag o-rob" contenteditable>ROBSON</span></td>
+          <td class="due due-cell" contenteditable>Jul 16</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Carpenter back from Mindanao Jul 16. ₱850–900/day foreman + ₱600/day junior, salaried (not pakyaw).</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Renovation finish: wallpaper / pastel two-tone walls, spotlights, "posh tech" vibe</td>
+          <td class="owner"><span class="owner-tag o-rob" contenteditable>ROBSON</span></td>
+          <td class="due due-cell" contenteditable>Jul 23</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>5–7 days. Jeff to generate wall/decor mockups in Claude.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Secure filing/vault for contracts (landlord vault @ Oriental Garden available)</td>
+          <td class="owner"><span class="owner-tag o-rob" contenteditable>ROBSON</span></td>
+          <td class="due due-cell" contenteditable>Jul 23</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Keep contracts secure — can't go fully paperless.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Generate reno/decor mockups for partner sign-off</td>
+          <td class="owner"><span class="owner-tag o-jeff" contenteditable>JEFF</span></td>
+          <td class="due due-cell" contenteditable>Jul 10</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Nano Banana Pro / Claude.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 3 — HARDWARE / PC CAPEX ============ -->
+  <section class="ws">
+    <div class="ws-head">
+      <span class="ws-no">03</span>
+      <span class="ws-title">Stations &amp; server</span>
+      <span class="ws-note">₱500k capex dropped — pool gear</span>
+    </div>
+    <table>
+      <thead><tr><th>Task</th><th>Owner</th><th>Due</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="task" contenteditable>Inventory pooled machines (landlord ~7 incl. ~4 workstations; Jeff rig 2× RTX 2080 Ti; P3 1–2 PCs/laptops)</td>
+          <td class="owner"><span class="owner-tag o-all" contenteditable>ALL</span></td>
+          <td class="due due-cell" contenteditable>Jul 12</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Target uniform stations.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Pull server + test (unused a while): format, reload OS/software</td>
+          <td class="owner"><span class="owner-tag o-rob" contenteditable>ROBSON</span></td>
+          <td class="due due-cell" contenteditable>Jul 18</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Do NOT leave to August. Jeff to verify build.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Add SSD boot drive to server (only HDD currently)</td>
+          <td class="owner"><span class="owner-tag o-jeff" contenteditable>JEFF</span></td>
+          <td class="due due-cell" contenteditable>Jul 20</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Small spend. Needed before deploy.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Buy used monitors (~₱3,000 ea) + keyboards (₱250–300) to fill stations</td>
+          <td class="owner"><span class="owner-tag o-p3" contenteditable>P3</span></td>
+          <td class="due due-cell" contenteditable>Jul 25</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Aim uniform look.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 4 — PRODUCT / MODULES ============ -->
+  <section class="ws">
+    <div class="ws-head">
+      <span class="ws-no">04</span>
+      <span class="ws-title">Product &amp; curriculum</span>
+      <span class="ws-note">Lab architecture locked Jun 21</span>
+    </div>
+    <table>
+      <thead><tr><th>Task</th><th>Owner</th><th>Due</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="task" contenteditable>Partners send draft modules to Jeff (Create / Sell / Operate / Ship labs)</td>
+          <td class="owner"><span class="owner-tag o-rob" contenteditable>ROB+P3</span></td>
+          <td class="due due-cell" contenteditable>Tomorrow</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Jeff shoots Tue — needs them to finalize.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Finalize modules in Claude + lock vocabulary (participant/builder, no "curriculum/student")</td>
+          <td class="owner"><span class="owner-tag o-jeff" contenteditable>JEFF</span></td>
+          <td class="due due-cell" contenteditable>Jul (wk 1)</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>SEC-safe naming. Run outside loaded Project to save tokens.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>One-page tool glossary (Seedance 2 / Kling 3 / Cinema Studio 3.5 / Nano Banana Pro)</td>
+          <td class="owner"><span class="owner-tag o-jeff" contenteditable>JEFF</span></td>
+          <td class="due due-cell" contenteditable>Jul (wk 1)</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Fix "Cinema Dance / 4D" confusion before teaching.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 5 — WEBSITE / PRE-SALE ============ -->
+  <section class="ws">
+    <div class="ws-head">
+      <span class="ws-no">05</span>
+      <span class="ws-title">Website &amp; pre-sale</span>
+      <span class="ws-note">Pro ₱8,000 · Builder ₱3,500</span>
+    </div>
+    <table>
+      <thead><tr><th>Task</th><th>Owner</th><th>Due</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="task" contenteditable>Publish modules + Lab/Track structure to website</td>
+          <td class="owner"><span class="owner-tag o-jeff" contenteditable>JEFF</span></td>
+          <td class="due due-cell" contenteditable>Jul (wk 2)</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Target launch next Fri–Sun.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Build cohort calendar + booking flow</td>
+          <td class="owner"><span class="owner-tag o-jeff" contenteditable>JEFF</span></td>
+          <td class="due due-cell" contenteditable>Jul (wk 2)</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Cohort 01 = Sat Aug 16.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Open pre-sale (advance seat booking) via GCash deposits</td>
+          <td class="owner"><span class="owner-tag o-all" contenteditable>ALL</span></td>
+          <td class="due due-cell" contenteditable>Jul (wk 2)</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>60-day runway. Gauge real demand.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Produce compelling promo video (for Vegas / outreach)</td>
+          <td class="owner"><span class="owner-tag o-jeff" contenteditable>JEFF</span></td>
+          <td class="due due-cell" contenteditable>Jul</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>"Don't get ahead" — keep it tight.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 6 — FUNDING / CREDITS ============ -->
+  <section class="ws">
+    <div class="ws-head">
+      <span class="ws-no">06</span>
+      <span class="ws-title">Funding &amp; credits</span>
+      <span class="ws-note">Lead with Hollywood Ninja, not AIEC</span>
+    </div>
+    <table>
+      <thead><tr><th>Task</th><th>Owner</th><th>Due</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="task" contenteditable>Claim Microsoft Co-Pilot / GitHub free credits (already offered)</td>
+          <td class="owner"><span class="owner-tag o-jeff" contenteditable>JEFF</span></td>
+          <td class="due due-cell" contenteditable>Jul (wk 1)</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Lowest-hanging fruit. 5 GitHub projects already.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Build funding one-pager — lead w/ HN 20-yr record + proof of concept, AIEC second</td>
+          <td class="owner"><span class="owner-tag o-jeff" contenteditable>JEFF</span></td>
+          <td class="due due-cell" contenteditable>Jul</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Frame: non-profit, asking support/credits not cash.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Outreach to Magnific + Google for credits</td>
+          <td class="owner"><span class="owner-tag o-all" contenteditable>ALL</span></td>
+          <td class="due due-cell" contenteditable>Jul</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>~50/50 odds. Enrique @ Magnific already saw Jeff's work.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 7 — ADMIN / LEGITIMACY ============ -->
+  <section class="ws">
+    <div class="ws-head">
+      <span class="ws-no">07</span>
+      <span class="ws-title">Admin &amp; legitimacy</span>
+      <span class="ws-note">Gates the credit pitch &amp; pre-sale trust</span>
+    </div>
+    <table>
+      <thead><tr><th>Task</th><th>Owner</th><th>Due</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="task" contenteditable>Onboarding docs: contract → code of conduct → social-media policy → probation</td>
+          <td class="owner"><span class="owner-tag o-rob" contenteditable>ROBSON</span></td>
+          <td class="due due-cell" contenteditable>Jul</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Red line: no company name on personal social = grounds to fire.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Create Google Business listing once address is committed</td>
+          <td class="owner"><span class="owner-tag o-jeff" contenteditable>JEFF</span></td>
+          <td class="due due-cell" contenteditable>Jul 16</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Verification call checks physical address — gates credits.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Confirm name reservation (done) + start SEC / business permit / BIR</td>
+          <td class="owner"><span class="owner-tag o-rob" contenteditable>ROBSON</span></td>
+          <td class="due due-cell" contenteditable>Jul</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Name reservation already done.</td>
+        </tr>
+        <tr>
+          <td class="task" contenteditable>Set up interim receipts: acknowledgment receipt on deposit → official receipt on full payment</td>
+          <td class="owner"><span class="owner-tag o-p3" contenteditable>P3</span></td>
+          <td class="due due-cell" contenteditable>Jul (wk 2)</td>
+          <td class="status"></td>
+          <td class="notes" contenteditable>Until permit/BIR active.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ RISK STRIP ============ -->
+  <div class="risk">
+    <h3>⚠ Watch list</h3>
+    <ul>
+      <li><b>5-day buffer.</b> Jeff returns Aug 10, cohort Aug 16. Everything buildable must be done before he travels — treat the return window as setup only.</li>
+      <li><b>Deal unsigned.</b> Cap + renovation split agreed verbally after hours of circling. Get it on paper before Jul 16 spend starts.</li>
+      <li><b>Server unknown.</b> Condition unverified until pulled. Don't discover a dead drive days before launch.</li>
+      <li><b>Legitimacy not live.</b> No Google Business listing / permit yet — blocks both the credit pitch and pre-sale trust.</li>
+      <li><b>Claude token bleed.</b> Running live sessions inside the loaded Project burns the limit. Work in a fresh chat, commit decisions back after.</li>
+    </ul>
+  </div>
+
+  <footer class="foot">
+    <div class="add">
+      <button class="tool ghost" onclick="addRow()">＋ Add row to a section</button>
+    </div>
+    AIEC Action Plan · generated from Jun 21 + Jun 28 sessions · owners and dates are editable placeholders — adjust before circulating.
+  </footer>
+
+</div>
+
+<script>
+  const STATUSES = [
+    ["idle","Not started"],
+    ["wip","In progress"],
+    ["done","Done"],
+    ["block","Blocked"]
+  ];
+  // build status dropdowns
+  function makeSelect(val){
+    const s=document.createElement("select");
+    s.className="st";
+    STATUSES.forEach(([v,label])=>{
+      const o=document.createElement("option");
+      o.value=v;o.textContent=label;
+      if(v===val)o.selected=true;
+      s.appendChild(o);
+    });
+    s.dataset.v=val||"idle";
+    s.addEventListener("change",()=>{s.dataset.v=s.value;save();});
+    return s;
+  }
+  function initStatusCells(){
+    document.querySelectorAll("td.status").forEach(td=>{
+      if(!td.querySelector("select")){
+        td.appendChild(makeSelect(td.dataset.val||"idle"));
+      }
+    });
+  }
+
+  const KEY="aiec_action_plan_v1";
+  function snapshot(){
+    return document.querySelector(".sheet").innerHTML;
+  }
+  function save(){
+    try{
+      localStorage.setItem(KEY,snapshot());
+      flash("Saved ✓");
+    }catch(e){flash("Save failed");}
+  }
+  let t;
+  function flash(msg){
+    const n=document.getElementById("savedNote");
+    if(!n)return;n.textContent=msg;clearTimeout(t);
+    t=setTimeout(()=>{n.textContent="Edits save automatically in this browser.";},1600);
+  }
+  function saveNow(){save();}
+  function load(){
+    try{
+      const html=localStorage.getItem(KEY);
+      if(html){document.querySelector(".sheet").innerHTML=html;}
+    }catch(e){}
+    initStatusCells();
+    bind();
+  }
+  function bind(){
+    document.querySelectorAll("[contenteditable]").forEach(el=>{
+      el.removeEventListener("input",save);
+      el.addEventListener("input",debounce(save,500));
+    });
+    document.querySelectorAll("select.st").forEach(s=>{
+      s.dataset.v=s.value;
+      s.onchange=()=>{s.dataset.v=s.value;save();};
+    });
+  }
+  function debounce(fn,ms){let h;return(...a)=>{clearTimeout(h);h=setTimeout(()=>fn(...a),ms);};}
+  function resetAll(){
+    if(confirm("Reset all edits back to the original plan?")){
+      localStorage.removeItem(KEY);location.reload();
+    }
+  }
+  function addRow(){
+    const sections=[...document.querySelectorAll("section.ws")];
+    const names=sections.map((s,i)=> (i)+" — "+s.querySelector(".ws-title").textContent);
+    const pick=prompt("Add a row to which section?\n\n"+names.join("\n")+"\n\nType the number:");
+    const idx=parseInt(pick,10);
+    if(isNaN(idx)||!sections[idx]){return;}
+    const tbody=sections[idx].querySelector("tbody");
+    const tr=document.createElement("tr");
+    tr.innerHTML=
+      '<td class="task" contenteditable>New task…</td>'+
+      '<td class="owner"><span class="owner-tag o-all" contenteditable>ALL</span></td>'+
+      '<td class="due due-cell" contenteditable>—</td>'+
+      '<td class="status"></td>'+
+      '<td class="notes" contenteditable></td>';
+    tbody.appendChild(tr);
+    tr.querySelector("td.status").appendChild(makeSelect("idle"));
+    bind();save();
+    tr.querySelector(".task").focus();
+  }
+
+  // first paint
+  initStatusCells();
+  load();
+</script>
+</body>
+</html>

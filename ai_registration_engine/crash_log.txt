@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/home/vsmwrurd/ai_registration_engine/passenger_wsgi.py", line 759, in application
+    return safe_application(environ, start_response)
+  File "/home/vsmwrurd/ai_registration_engine/passenger_wsgi.py", line 245, in safe_application
+    import accounting
+ModuleNotFoundError: No module named 'accounting'

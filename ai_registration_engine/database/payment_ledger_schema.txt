@@ -1,0 +1,30 @@
+====================================================================
+REGISTRATION & OFFLINE PAYMENT LEDGER SCHEMA (MANUAL AUDIT V1)
+====================================================================
+
+Fields captured per participant registration:
+
+[REG_ID]         : Unique String (e.g., LAB-2026-001)
+[FULL_NAME]      : String
+[EMAIL]          : String
+[MOBILE_NUM]     : String
+[TRACK_TYPE]     : Option [ "BUSINESS" | "BUILDER" ]
+[TOTAL_FEE]      : Numeric [ BUSINESS = 8000 | BUILDER = 3500 ]
+
+--- PAYMENT TRACKING STATES ---
+[DEPOSIT_STATUS] : Option [ "PENDING_PROOF" | "VERIFIED_RESERVED" ]
+[DEPOSIT_REF]    : String (GCash/Bank reference code provided by user)
+[BALANCE_DUE]    : Numeric [ Total_Fee - 1000 when verified ]
+[ONSITE_SETTLED] : Option [ "UNPAID" | "PAID_AT_DOOR" ]
+
+--------------------------------------------------------------------
+MANUAL VERIFICATION WORKFLOW FOR DIRECTORS (JEFF / ROMSON / JET)
+--------------------------------------------------------------------
+1. Lead fills out registration info -> System sets DEPOSIT_STATUS to "PENDING_PROOF".
+2. Lead sends ₱1,000 via Personal QR Ph and messages the screenshot to a director.
+3. Director checks personal wallet app to verify ₱1,000 arrived, then updates:
+   - DEPOSIT_STATUS = "VERIFIED_RESERVED"
+   - DEPOSIT_REF = [Input the transaction number]
+   - BALANCE_DUE = [7000 or 2500 depending on track]
+4. On day of event, gatekeeper checks the schema, scans their balance due, collects it on-site via cash/personal QR scan, and flips ONSITE_SETTLED to "PAID_AT_DOOR".
+====================================================================

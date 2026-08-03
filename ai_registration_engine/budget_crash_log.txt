@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/home/vsmwrurd/ai_registration_engine/budget_controller.py", line 389, in application
+    if (!confirm(`Save ${changes.length} forecast change(s)? This will be logged in the audit trail.`)) {{
+UnboundLocalError: local variable 'changes' referenced before assignment
