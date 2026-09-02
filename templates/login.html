@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Login - AI Experience Center{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:450px; margin: 15% auto;">
+    <h2>Central Gateway Sign-In</h2>
+    <form method="POST" action="/admin/login">
+        <input type="hidden" name="action" value="login">
+        <div class="form-group">
+            <label>Username ID</label>
+            <input type="text" name="username" required autofocus>
+        </div>
+        <div class="form-group">
+            <label>Password Token</label>
+            <input type="password" name="password" required>
+        </div>
+        <button type="submit">Unlock System Command</button>
+    </form>
+</div>
+{% endblock %}
