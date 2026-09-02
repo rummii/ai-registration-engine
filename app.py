@@ -1,6 +1,7 @@
 import os
 import hmac
 import html
+import hashlib
 from datetime import datetime, timedelta
 from flask import Flask, request, redirect, url_for, render_template, session, flash, g, jsonify
 from functools import wraps

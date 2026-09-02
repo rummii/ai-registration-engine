@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Accounting Dashboard - AI Experience Center{% endblock %}
+
+{% block content %}
+<nav class="top-nav">
+    <a href="/admin/dashboard">Dashboard</a>
+    <a href="/admin/budget">Budget Controller</a>
+    <a href="/admin/logout">Logout</a>
+</nav>
+
+<div class="accounting">
+    <h1>Accounting Dashboard</h1>
+    
+    <div class="metrics-grid">
+        <div class="metric-card approved">
+            <h3>Approved Revenue</h3>
+            <p class="metric-value">₱{{ "%.2f"|format(total_approved) }}</p>
+            <span class="metric-count">{{ approved_count }} bookings</span>
+        </div>
+        <div class="metric-card pending">
+            <h3>Pending Revenue</h3>
+            <p class="metric-value">₱{{ "%.2f"|format(total_pending) }}</p>
+            <span class="metric-count">{{ pending_count }} bookings</span>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Booking Ledger</h2>
+        <table class="ledger-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Session</th>
+                    <th>Price</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in ledger %}
+                <tr>
+                    <td>{{ entry.id }}</td>
+                    <td>{{ entry.name }}</td>
+                    <td>{{ entry.email }}</td>
+                    <td>{{ entry.date_label }}</td>
+                    <td>₱{{ "%.2f"|format(entry.price) }}</td>
+                    <td>
+                        <span class="badge badge-{{ 'success' if entry.status == 'APPROVED' else 'warning' if entry.status == 'PENDING' else 'danger' }}">
+                            {{ entry.status }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+.top-nav { display: flex; gap: 1rem; padding: 1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
+.top-nav a { color: var(--cyan); text-decoration: none; }
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.metric-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; text-align: center; }
+.metric-card h3 { margin: 0 0 0.5rem; color: var(--muted); font-size: 0.875rem; text-transform: uppercase; }
+.metric-value { font-size: 2rem; font-weight: 700; margin: 0; }
+.metric-card.approved .metric-value { color: #10b981; }
+.metric-card.pending .metric-value { color: #f59e0b; }
+.metric-count { color: var(--muted); font-size: 0.875rem; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; }
+.ledger-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+.ledger-table th, .ledger-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
+.ledger-table th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; }
+.badge { padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+.badge-success { background: #10b981; color: white; }
+.badge-warning { background: #f59e0b; color: white; }
+.badge-danger { background: #ef4444; color: white; }
+</style>
+{% endblock %}

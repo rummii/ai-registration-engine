@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}Budget Controller - AI Experience Center{% endblock %}
+
+{% block content %}
+<nav class="top-nav">
+    <a href="/admin/dashboard">Dashboard</a>
+    <a href="/admin/accounting">Accounting</a>
+    <a href="/admin/logout">Logout</a>
+</nav>
+
+<div class="budget-controller">
+    <div class="budget-header">
+        <h1>Budget Controller</h1>
+        <div class="year-selector">
+            <a href="?year={{ fiscal_year - 1 }}">&lt;</a>
+            <span>{{ fiscal_year }}</span>
+            <a href="?year={{ fiscal_year + 1 }}">&gt;</a>
+        </div>
+    </div>
+    
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <form method="POST" action="/admin/budget/forecast/update" id="budgetForm">
+        <input type="hidden" name="fiscal_year" value="{{ fiscal_year }}">
+        <input type="hidden" name="changes" id="changesField">
+        
+        <table class="budget-table">
+            <thead>
+                <tr>
+                    <th>Line Item</th>
+                    {% for month in months %}
+                    <th>{{ month }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for category, items in structure.items() %}
+                <tr class="category-row">
+                    <td colspan="13"><strong>{{ category }}</strong></td>
+                </tr>
+                {% for item in items %}
+                <tr>
+                    <td class="item-name">{{ item }}</td>
+                    {% for m in range(12) %}
+                    <td>
+                        <input type="number" step="0.01" class="budget-input"
+                               data-item="{{ item }}" data-month="{{ m + 1 }}"
+                               value="{{ forecast_data.get(item, [0] * 12)[m] }}">
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        <div class="budget-actions">
+            <button type="submit" class="btn-primary" id="saveBtn">
+                Save Forecast
+            </button>
+        </div>
+    </form>
+    
+    {% if audit_log %}
+    <div class="card audit-section">
+        <h2>Audit Log</h2>
+        <table class="audit-table">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>User</th>
+                    <th>Item</th>
+                    <th>Old</th>
+                    <th>New</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in audit_log %}
+                <tr>
+                    <td>{{ log.timestamp[:19] }}</td>
+                    <td>{{ log.username }}</td>
+                    <td>{{ log.line_item_name }}</td>
+                    <td>{{ "%.2f"|format(log.old_value) }}</td>
+                    <td>{{ "%.2f"|format(log.new_value) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.top-nav { display: flex; gap: 1rem; padding: 1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
+.top-nav a { color: var(--cyan); text-decoration: none; }
+.budget-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+.year-selector { display: flex; align-items: center; gap: 1rem; }
+.year-selector a { color: var(--cyan); text-decoration: none; font-size: 1.5rem; }
+.budget-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.budget-table th, .budget-table td { border: 1px solid var(--border); padding: 0.5rem; text-align: right; }
+.budget-table th { background: var(--surface); text-align: center; font-weight: 600; color: var(--muted); font-size: 0.75rem; }
+.budget-table th:first-child { text-align: left; }
+.category-row { background: var(--surface); }
+.category-row td { background: var(--bg); color: var(--cyan); }
+.item-name { text-align: left !important; font-weight: 500; }
+.budget-input { width: 80px; padding: 0.25rem; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); text-align: right; }
+.budget-input:focus { border-color: var(--cyan); outline: none; }
+.budget-actions { margin-top: 1rem; text-align: right; }
+.btn-primary { padding: 0.75rem 1.5rem; background: var(--cyan); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-top: 1.5rem; }
+.audit-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+.audit-table th, .audit-table td { padding: 0.5rem; text-align: left; border-bottom: 1px solid var(--border); }
+.audit-table th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; }
+.alert { padding: 1rem; border-radius: 6px; margin-bottom: 1rem; }
+.alert-success { background: #10b98120; border: 1px solid #10b981; color: #10b981; }
+</style>
+
+<script>
+document.getElementById('budgetForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const changes = [];
+    document.querySelectorAll('.budget-input').forEach(input => {
+        changes.push(input.dataset.month + '|' + input.dataset.item + '|' + (parseFloat(input.value) || 0));
+    });
+    document.getElementById('changesField').value = changes.join(';');
+    fetch('/admin/budget/forecast/update', { method: 'POST', body: new FormData(this) })
+        .then(() => window.location.reload());
+});
+</script>
+{% endblock %}
