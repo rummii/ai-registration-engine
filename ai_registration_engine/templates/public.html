@@ -54,7 +54,7 @@
                     </div>
                     <div class="meta-item">
                         <span class="meta-label">Session Fee:</span>
-                        <span style="color:var(--teal); font-weight:700;">{{ (cohort.price_cents or 0) / 100.0:,.2f }}</span>
+                        <span style="color:var(--teal); font-weight:700;">{{ "%.2f"|format((cohort.price_cents or 0) / 100.0) }}</span>
                     </div>
                     <div class="meta-item">
                         <span class="meta-label">Availability:</span>

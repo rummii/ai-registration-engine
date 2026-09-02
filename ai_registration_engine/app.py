@@ -1,3 +1,4 @@
+import os
 import hmac
 import html
 from datetime import datetime, timedelta
@@ -6,7 +7,8 @@ from functools import wraps
 from config import SECRET_KEY, COOKIE_SECRET, MAX_CONTENT_LENGTH, BRUTE_FORCE_LIMIT, LOCKOUT_MINUTES, SESSION_HOURS
 from db import get_db, hash_password, init_db, migrate_price_data
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app = Flask(__name__, template_folder=os.path.join(BASE_DIR, "templates"), static_folder=os.path.join(BASE_DIR, "static"))
 app.config['SECRET_KEY'] = SECRET_KEY
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
