@@ -24,7 +24,7 @@ def sign_cookie(username: str) -> str:
     """Create HMAC-signed session cookie"""
     timestamp = str(int(datetime.utcnow().timestamp()))
     payload = f"{username}|{timestamp}".encode('utf-8')
-    sig = hmac.new(COOKIE_SECRET, payload, hashlib.sha256).hexdigest()
+    sig = hmac.new(COOKIE_SECRET.encode('utf-8'), payload, hashlib.sha256).hexdigest()
     return f"{username}|{timestamp}|{sig}"
 
 def verify_cookie(cookie_value: str) -> str:
@@ -37,8 +37,8 @@ def verify_cookie(cookie_value: str) -> str:
             return None
         username, timestamp, sig = parts
         payload = f"{username}|{timestamp}".encode('utf-8')
-        expected_sig = hmac.new(COOKIE_SECRET, payload, hashlib.sha256).hexdigest()
-        
+        expected_sig = hmac.new(COOKIE_SECRET.encode('utf-8'), payload, hashlib.sha256).hexdigest()
+
         if hmac.compare_digest(sig, expected_sig):
             age = datetime.utcnow().timestamp() - float(timestamp)
             if age < (SESSION_HOURS * 3600):
