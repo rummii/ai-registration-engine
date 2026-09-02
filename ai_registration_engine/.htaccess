@@ -1,0 +1,4 @@
+# Direct web requests to Phusion Passenger WSGI
+PassengerEnabled On
+PassengerPython /home/vsmwrurd/virtualenv/ai_registration_engine/3.9/bin/python
+PassengerAppRoot /home/vsmwrurd/ai_registration_engine
