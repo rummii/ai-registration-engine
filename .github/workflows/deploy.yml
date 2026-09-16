@@ -24,6 +24,38 @@ jobs:
       - name: Configure Docker authentication
         run: gcloud auth configure-docker "${{ secrets.GCP_REGION }}-docker.pkg.dev" --quiet
 
+      - name: Sync runtime secrets to Secret Manager
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          COOKIE_SECRET: ${{ secrets.COOKIE_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_CHAT_ID: ${{ secrets.TELEGRAM_ALLOWED_CHAT_ID }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+        run: |
+          set -euo pipefail
+
+          sync_secret() {
+            NAME="$1"
+            VALUE="${!NAME}"
+            if [ -z "${VALUE}" ]; then
+              echo "GitHub Actions secret ${NAME} is empty or not configured." >&2
+              exit 1
+            fi
+
+            if gcloud secrets describe "${NAME}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+              printf '%s' "${VALUE}" | gcloud secrets versions add "${NAME}" --data-file=- --project "${PROJECT_ID}" >/dev/null
+            else
+              printf '%s' "${VALUE}" | gcloud secrets create "${NAME}" --data-file=- --replication-policy=automatic --project "${PROJECT_ID}" >/dev/null
+            fi
+          }
+
+          for SECRET in DATABASE_URL SECRET_KEY COOKIE_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_CHAT_ID TELEGRAM_WEBHOOK_SECRET
+          do
+            sync_secret "${SECRET}"
+          done
+
       - name: Verify Cloud Run secrets exist
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}

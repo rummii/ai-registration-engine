@@ -12,9 +12,17 @@ Configure these GitHub Actions secrets:
 - `GCP_REGION`: Cloud Run and Artifact Registry region, normally `us-east1`.
 - `GCP_ARTIFACT_REPOSITORY`: Artifact Registry Docker repository name.
 - `GCP_CLOUD_RUN_SERVICE`: Cloud Run service name.
+- `DATABASE_URL`: Neon pooled PostgreSQL connection string.
+- `SECRET_KEY`: random Flask secret key.
+- `COOKIE_SECRET`: random cookie-signing secret.
+- `TELEGRAM_BOT_TOKEN`: rotated Telegram bot token.
+- `TELEGRAM_ALLOWED_CHAT_ID`: authorized Telegram chat ID.
+- `TELEGRAM_WEBHOOK_SECRET`: random Telegram webhook secret token.
 
 The deployer needs permission to submit Cloud Build jobs, write to Artifact Registry,
-deploy Cloud Run revisions, and impersonate or use the runtime service account.
+deploy Cloud Run revisions, and create/update Secret Manager secrets. The workflow
+synchronizes the six application secrets from GitHub Actions into Secret Manager
+before deployment.
 The workflow verifies that all required Secret Manager secrets exist before it builds
 or deploys a revision.
 
