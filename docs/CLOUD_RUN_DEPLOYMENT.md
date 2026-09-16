@@ -15,6 +15,8 @@ Configure these GitHub Actions secrets:
 
 The deployer needs permission to submit Cloud Build jobs, write to Artifact Registry,
 deploy Cloud Run revisions, and impersonate or use the runtime service account.
+The workflow verifies that all required Secret Manager secrets exist before it builds
+or deploys a revision.
 
 ## Secret Manager secrets
 
@@ -34,3 +36,9 @@ set the Telegram webhook URL to:
 `https://SERVICE-REGION.run.app/telegram/webhook`
 
 Use the same `TELEGRAM_WEBHOOK_SECRET` value when configuring the Telegram webhook.
+
+## Fixing a missing-secret boot failure
+
+If Cloud Run logs show `COOKIE_SECRET must be configured in production`, create the
+missing Secret Manager secret and grant the Cloud Run runtime service account access
+before rerunning the GitHub workflow. Repeat for every required secret listed above.

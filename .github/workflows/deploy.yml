@@ -24,6 +24,20 @@ jobs:
       - name: Configure Docker authentication
         run: gcloud auth configure-docker "${{ secrets.GCP_REGION }}-docker.pkg.dev" --quiet
 
+      - name: Verify Cloud Run secrets exist
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          for SECRET in DATABASE_URL SECRET_KEY COOKIE_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_CHAT_ID TELEGRAM_WEBHOOK_SECRET
+          do
+            if ! gcloud secrets describe "${SECRET}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+              echo "Missing Secret Manager secret: ${SECRET}" >&2
+              exit 1
+            fi
+          done
+          echo "All required Secret Manager secrets exist."
+
       - name: Build and push container
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
