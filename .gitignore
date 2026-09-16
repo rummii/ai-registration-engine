@@ -8,3 +8,10 @@ tmp/
 logs/
 *.log
 virtualenv/
+.venv/
+.neon
+.env.local
+passenger_wsgi.py
+.agents/
+skills-lock.json
+static/img/

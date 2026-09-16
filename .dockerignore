@@ -1,0 +1,14 @@
+.git
+.github
+.env
+.env.*
+*.db
+*.sqlite
+*.sqlite3
+*.log
+__pycache__
+*.pyc
+.venv
+passenger_wsgi.py
+.agents
+registration.db

@@ -1,4 +1,4 @@
-name: Deploy to cPanel
+name: Deploy to Google Cloud Run
 
 on:
   push:
@@ -7,39 +7,45 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - name: Checkout Code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Copy files via SCP
-        uses: appleboy/scp-action@master
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          host: ${{ secrets.CPANEL_HOST }}
-          username: ${{ secrets.CPANEL_USER }}
-          password: ${{ secrets.CPANEL_PASSWORD }}
-          port: 2202
-          source: "./"
-          target: "/home/vsmwrurd/ai_registration_engine"
-          strip_components: 0
-          exclude: |
-            .git
-            .github
-            .env
-            *.db
-            *.sqlite
-            *.sqlite3
-            virtualenv
-            tmp
-            __pycache__
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
 
-      - name: Restart Phusion Passenger
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.CPANEL_HOST }}
-          username: ${{ secrets.CPANEL_USER }}
-          password: ${{ secrets.CPANEL_PASSWORD }}
-          port: 2202
-          script: |
-            cd /home/vsmwrurd/ai_registration_engine
-            mkdir -p tmp
-            touch tmp/restart.txt
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker authentication
+        run: gcloud auth configure-docker "${{ secrets.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Build and push container
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: ${{ secrets.GCP_REGION }}
+          REPOSITORY: ${{ secrets.GCP_ARTIFACT_REPOSITORY }}
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/ai-registration-engine:${GITHUB_SHA}"
+          gcloud builds submit --project "${PROJECT_ID}" --tag "${IMAGE}" .
+
+      - name: Deploy to Cloud Run
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: ${{ secrets.GCP_REGION }}
+          SERVICE: ${{ secrets.GCP_CLOUD_RUN_SERVICE }}
+          REPOSITORY: ${{ secrets.GCP_ARTIFACT_REPOSITORY }}
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/ai-registration-engine:${GITHUB_SHA}"
+          gcloud run deploy "${SERVICE}" \
+            --project "${PROJECT_ID}" \
+            --region "${REGION}" \
+            --image "${IMAGE}" \
+            --platform managed \
+            --port 8080 \
+            --allow-unauthenticated \
+            --set-secrets "DATABASE_URL=DATABASE_URL:latest,SECRET_KEY=SECRET_KEY:latest,COOKIE_SECRET=COOKIE_SECRET:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,TELEGRAM_ALLOWED_CHAT_ID=TELEGRAM_ALLOWED_CHAT_ID:latest,TELEGRAM_WEBHOOK_SECRET=TELEGRAM_WEBHOOK_SECRET:latest"

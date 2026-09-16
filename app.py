@@ -2,11 +2,25 @@ import os
 import hmac
 import html
 import hashlib
+import json
+from urllib import request as url_request
+from urllib.error import URLError
 from datetime import datetime, timedelta
 from flask import Flask, request, redirect, url_for, render_template, session, flash, g, jsonify
 from functools import wraps
-from config import SECRET_KEY, COOKIE_SECRET, MAX_CONTENT_LENGTH, BRUTE_FORCE_LIMIT, LOCKOUT_MINUTES, SESSION_HOURS
+from config import (
+    SECRET_KEY,
+    COOKIE_SECRET,
+    MAX_CONTENT_LENGTH,
+    BRUTE_FORCE_LIMIT,
+    LOCKOUT_MINUTES,
+    SESSION_HOURS,
+    TELEGRAM_ALLOWED_CHAT_ID,
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_WEBHOOK_SECRET,
+)
 from db import get_db, hash_password, init_db, migrate_price_data
+from telegram_handler import BudgetMessageError, parse_budget_message
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, template_folder=os.path.join(BASE_DIR, "templates"), static_folder=os.path.join(BASE_DIR, "static"))
@@ -103,7 +117,115 @@ def run_screener_assessment(a1: str, a2: str):
     
     return "REJECT RECOMMENDATION", "Low actionable use-case mapping. Content seems general or passive."
 
-# --- Public Routes ---
+# --- Health and Public Routes ---
+
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "ok", "service": "ai-registration-engine"})
+
+
+def _send_telegram_message(chat_id, text):
+    """Send an optional Telegram acknowledgement without breaking the webhook."""
+    if not TELEGRAM_BOT_TOKEN:
+        return
+
+    payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
+    telegram_request = url_request.Request(
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with url_request.urlopen(telegram_request, timeout=5):
+            pass
+    except (OSError, URLError):
+        app.logger.exception("Unable to send Telegram acknowledgement")
+
+
+def _budget_line_items():
+    return {
+        item
+        for items in FINANCIAL_STRUCTURE.values()
+        for item in items
+    }
+
+
+def _record_budget_actual(message, *, chat_id, telegram_update_id, telegram_message_id):
+    db = get_db()
+    try:
+        if telegram_update_id:
+            duplicate = db.execute(
+                "SELECT id FROM budget_actuals_audit_log WHERE telegram_update_id = ?",
+                (telegram_update_id,),
+            ).fetchone()
+            if duplicate:
+                return False
+
+        update_cursor = db.execute(
+            "UPDATE budget_actuals_cache SET actual_amount = ? WHERE fiscal_year = ? AND month_index = ? AND line_item_name = ?",
+            (float(message.amount), message.fiscal_year, message.month_index, message.line_item_name),
+        )
+        if update_cursor.rowcount == 0:
+            db.execute(
+                "INSERT INTO budget_actuals_cache (fiscal_year, month_index, line_item_name, actual_amount) VALUES (?, ?, ?, ?)",
+                (message.fiscal_year, message.month_index, message.line_item_name, float(message.amount)),
+            )
+
+        db.execute(
+            "INSERT INTO budget_actuals_audit_log (telegram_update_id, timestamp, chat_id, message_id, fiscal_year, month_index, line_item_name, amount, status, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                telegram_update_id,
+                datetime.utcnow().isoformat(),
+                str(chat_id),
+                str(telegram_message_id) if telegram_message_id else None,
+                message.fiscal_year,
+                message.month_index,
+                message.line_item_name,
+                float(message.amount),
+                "RECORDED",
+                "Budget actual recorded from Telegram.",
+            ),
+        )
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+@app.route('/telegram/webhook', methods=['POST'])
+def telegram_webhook():
+    if TELEGRAM_WEBHOOK_SECRET:
+        supplied_secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token', '')
+        if not hmac.compare_digest(supplied_secret, TELEGRAM_WEBHOOK_SECRET):
+            return jsonify({"error": "Unauthorized webhook request."}), 403
+
+    update = request.get_json(silent=True) or {}
+    telegram_message = update.get('message') or update.get('edited_message') or {}
+    chat = telegram_message.get('chat') or {}
+    chat_id = str(chat.get('id', ''))
+    if not TELEGRAM_ALLOWED_CHAT_ID or chat_id != str(TELEGRAM_ALLOWED_CHAT_ID):
+        return jsonify({"error": "Unauthorized Telegram chat."}), 403
+
+    try:
+        message = parse_budget_message(telegram_message.get('text', ''), _budget_line_items())
+    except BudgetMessageError as exc:
+        _send_telegram_message(chat_id, f"Budget update rejected: {exc}")
+        return jsonify({"ok": False, "error": str(exc)}), 200
+
+    recorded = _record_budget_actual(
+        message,
+        chat_id=chat_id,
+        telegram_update_id=update.get('update_id'),
+        telegram_message_id=telegram_message.get('message_id'),
+    )
+    if recorded:
+        _send_telegram_message(
+            chat_id,
+            f"Budget update recorded: {message.line_item_name}, {message.month_index:02d}/{message.fiscal_year} = {message.amount:,.2f}",
+        )
+
+    return jsonify({"ok": True, "recorded": recorded}), 200
 
 @app.route('/')
 @app.route('/book-now', methods=['GET', 'POST'])
@@ -346,13 +468,32 @@ def approve_seat():
     booking_id = int(request.form.get('booking_idx'))
     db = get_db()
     booking = db.execute("SELECT * FROM participant_bookings WHERE id = ?", (booking_id,)).fetchone()
-    
+
     if booking and booking['status'] == 'PENDING':
-        db.execute("UPDATE cohort_dates SET booked = booked + 1 WHERE date_key = ?", (booking['date_key'],))
-        db.execute("UPDATE participant_bookings SET status = 'APPROVED' WHERE id = ?", (booking_id,))
-        db.commit()
-        flash('Booking approved.', 'success')
-    
+        cohort = db.execute(
+            "SELECT cap, booked FROM cohort_dates WHERE date_key = ?",
+            (booking['date_key'],),
+        ).fetchone()
+
+        if not cohort:
+            flash('Session not found.', 'error')
+        elif cohort['booked'] >= cohort['cap']:
+            flash('This session is already at capacity. Booking cannot be approved.', 'error')
+        else:
+            db.execute(
+                "UPDATE cohort_dates SET booked = booked + 1 WHERE date_key = ?",
+                (booking['date_key'],),
+            )
+            db.execute(
+                "UPDATE participant_bookings SET status = 'APPROVED' WHERE id = ?",
+                (booking_id,),
+            )
+            db.commit()
+            flash('Booking approved.', 'success')
+
+    elif booking and booking['status'] != 'PENDING':
+        flash('Booking is not awaiting approval.', 'error')
+
     db.close()
     return redirect(url_for('admin_dashboard'))
 
@@ -431,6 +572,59 @@ FINANCIAL_STRUCTURE = {
 
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
+
+def calculate_budget_metrics(forecast_data, actual_data, monthly_revenue):
+    """Calculate monthly expense totals and profitability from budget inputs."""
+    operating_categories = {"Other Expenses", "Promotion Expenses", "Payroll & Pilotage"}
+    operating_items = {
+        item
+        for category, items in FINANCIAL_STRUCTURE.items()
+        if category in operating_categories
+        for item in items
+    }
+    fixed_items = set(FINANCIAL_STRUCTURE["Fixed Costs"])
+
+    forecast_total = [0.0] * 12
+    actual_total = [0.0] * 12
+    forecast_operating = [0.0] * 12
+    actual_operating = [0.0] * 12
+    forecast_fixed = [0.0] * 12
+    actual_fixed = [0.0] * 12
+
+    for item, values in forecast_data.items():
+        for index, value in enumerate(values[:12]):
+            amount = float(value or 0)
+            forecast_total[index] += amount
+            if item in operating_items:
+                forecast_operating[index] += amount
+            if item in fixed_items:
+                forecast_fixed[index] += amount
+
+    for item, values in actual_data.items():
+        for index, value in enumerate(values[:12]):
+            amount = float(value or 0)
+            actual_total[index] += amount
+            if item in operating_items:
+                actual_operating[index] += amount
+            if item in fixed_items:
+                actual_fixed[index] += amount
+
+    revenue = [float(value or 0) for value in monthly_revenue[:12]]
+    forecast_gop = [revenue[index] - forecast_operating[index] for index in range(12)]
+    actual_gop = [revenue[index] - actual_operating[index] for index in range(12)]
+    forecast_net = [forecast_gop[index] - forecast_fixed[index] for index in range(12)]
+    actual_net = [actual_gop[index] - actual_fixed[index] for index in range(12)]
+
+    return {
+        "forecast_total": forecast_total,
+        "actual_total": actual_total,
+        "forecast_gop": forecast_gop,
+        "actual_gop": actual_gop,
+        "forecast_net": forecast_net,
+        "actual_net": actual_net,
+        "revenue": revenue,
+    }
+
 @app.route('/admin/budget')
 @login_required
 def budget_controller():
@@ -439,17 +633,32 @@ def budget_controller():
     db = get_db()
     
     # Initialize budget rows if needed
-    for category, items in FINANCIAL_STRUCTURE.items():
-        for item in items:
-            for m in range(1, 13):
-                db.execute("""
-                    INSERT OR IGNORE INTO budget_forecast (fiscal_year, month_index, line_item_name, target_amount)
-                    VALUES (?, ?, ?, 0.0)
-                """, (fiscal_year, m, item))
-                db.execute("""
-                    INSERT OR IGNORE INTO budget_actuals_cache (fiscal_year, month_index, line_item_name, actual_amount)
-                    VALUES (?, ?, ?, 0.0)
-                """, (fiscal_year, m, item))
+    budget_rows = [
+        (fiscal_year, month_index, item, 0.0)
+        for category_items in FINANCIAL_STRUCTURE.values()
+        for item in category_items
+        for month_index in range(1, 13)
+    ]
+    placeholders = ', '.join(['(%s, %s, %s, %s)'] * len(budget_rows))
+    if getattr(db, 'postgres', False):
+        db.execute(
+            f"INSERT INTO budget_forecast (fiscal_year, month_index, line_item_name, target_amount) VALUES {placeholders} ON CONFLICT (fiscal_year, month_index, line_item_name) DO NOTHING",
+            tuple(value for row in budget_rows for value in row),
+        )
+        db.execute(
+            f"INSERT INTO budget_actuals_cache (fiscal_year, month_index, line_item_name, actual_amount) VALUES {placeholders} ON CONFLICT (fiscal_year, month_index, line_item_name) DO NOTHING",
+            tuple(value for row in budget_rows for value in row),
+        )
+    else:
+        sqlite_placeholders = placeholders.replace('%s', '?')
+        db.execute(
+            f"INSERT OR IGNORE INTO budget_forecast (fiscal_year, month_index, line_item_name, target_amount) VALUES {sqlite_placeholders}",
+            tuple(value for row in budget_rows for value in row),
+        )
+        db.execute(
+            f"INSERT OR IGNORE INTO budget_actuals_cache (fiscal_year, month_index, line_item_name, actual_amount) VALUES {sqlite_placeholders}",
+            tuple(value for row in budget_rows for value in row),
+        )
     
     # Load data
     forecast_data = {}
@@ -462,6 +671,28 @@ def budget_controller():
     for row in db.execute("SELECT month_index, line_item_name, actual_amount FROM budget_actuals_cache WHERE fiscal_year = ?", (fiscal_year,)).fetchall():
         actual_data.setdefault(row['line_item_name'], [0.0] * 12)
         actual_data[row['line_item_name']][row['month_index'] - 1] = row['actual_amount']
+
+    monthly_revenue = [0.0] * 12
+    for row in db.execute("""
+        SELECT b.date_key, c.price_cents
+        FROM participant_bookings b
+        LEFT JOIN cohort_dates c ON b.date_key = c.date_key
+        WHERE b.status = 'APPROVED'
+    """).fetchall():
+        try:
+            booking_year, booking_month, _ = row['date_key'].split('-', 2)
+            if int(booking_year) == fiscal_year:
+                monthly_revenue[int(booking_month) - 1] += (row['price_cents'] or 0) / 100.0
+        except (AttributeError, ValueError, IndexError):
+            continue
+
+    metrics = calculate_budget_metrics(forecast_data, actual_data, monthly_revenue)
+    chart_max = max(metrics["forecast_total"] + metrics["actual_total"] + [1.0])
+    last_actual = db.execute("""
+        SELECT timestamp FROM budget_actuals_audit_log
+        WHERE status = 'RECORDED' AND fiscal_year = ?
+        ORDER BY timestamp DESC LIMIT 1
+    """, (fiscal_year,)).fetchone()
     
     # Get audit log
     audit_log = db.execute("""
@@ -483,7 +714,10 @@ def budget_controller():
                          forecast_data=forecast_data,
                          actual_data=actual_data,
                          audit_log=audit_log,
-                         is_superadmin=is_superadmin)
+                         is_superadmin=is_superadmin,
+                         metrics=metrics,
+                         chart_max=chart_max,
+                         last_actual_timestamp=last_actual['timestamp'] if last_actual else None)
 
 @app.route('/admin/budget/forecast/update', methods=['POST'])
 @superadmin_required
@@ -534,4 +768,4 @@ def update_forecast():
     return redirect(url_for('budget_controller', year=fiscal_year))
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)

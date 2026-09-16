@@ -56,8 +56,30 @@
                     </td>
                     {% endfor %}
                 </tr>
+                <tr class="actual-row">
+                    <td class="item-name">{{ item }} <span class="actual-label">Actual</span></td>
+                    {% for m in range(12) %}
+                    <td class="actual-value">{{ "%.2f"|format(actual_data.get(item, [0] * 12)[m] or 0) }}</td>
+                    {% endfor %}
+                </tr>
                 {% endfor %}
                 {% endfor %}
+                <tr class="profit-row">
+                    <td class="item-name">GOP <span class="metric-label">Forecast</span></td>
+                    {% for value in metrics.forecast_gop %}<td>{{ "%.2f"|format(value) }}</td>{% endfor %}
+                </tr>
+                <tr class="profit-row actual-profit-row">
+                    <td class="item-name">GOP <span class="metric-label">Actual</span></td>
+                    {% for value in metrics.actual_gop %}<td>{{ "%.2f"|format(value) }}</td>{% endfor %}
+                </tr>
+                <tr class="profit-row net-row">
+                    <td class="item-name">Net Operating Profit <span class="metric-label">Forecast</span></td>
+                    {% for value in metrics.forecast_net %}<td>{{ "%.2f"|format(value) }}</td>{% endfor %}
+                </tr>
+                <tr class="profit-row actual-profit-row net-row">
+                    <td class="item-name">Net Operating Profit <span class="metric-label">Actual</span></td>
+                    {% for value in metrics.actual_net %}<td>{{ "%.2f"|format(value) }}</td>{% endfor %}
+                </tr>
             </tbody>
         </table>
         
@@ -67,6 +89,29 @@
             </button>
         </div>
     </form>
+
+    <section class="budget-summary card">
+        <div class="section-heading">
+            <div>
+                <h2>Forecast vs Actual</h2>
+                <p>Monthly expense comparison. Forecasts are entered here; actuals come from Telegram.</p>
+            </div>
+            <span class="status-badge">{% if last_actual_timestamp %}Telegram actuals live{% else %}No Telegram actuals yet{% endif %}</span>
+        </div>
+        <div class="budget-chart" role="img" aria-label="Monthly forecast and actual expense comparison">
+            {% for month in months %}
+            {% set index = loop.index0 %}
+            <div class="chart-month">
+                <div class="chart-bars">
+                    <div class="bar forecast-bar" style="height: {{ (metrics.forecast_total[index] / chart_max * 100)|round(1) }}%" title="Forecast: {{ '%.2f'|format(metrics.forecast_total[index]) }}"></div>
+                    <div class="bar actual-bar" style="height: {{ (metrics.actual_total[index] / chart_max * 100)|round(1) }}%" title="Actual: {{ '%.2f'|format(metrics.actual_total[index]) }}"></div>
+                </div>
+                <span>{{ month }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="chart-legend"><span><i class="legend-swatch forecast-swatch"></i>Forecast</span><span><i class="legend-swatch actual-swatch"></i>Actual</span></div>
+    </section>
     
     {% if audit_log %}
     <div class="card audit-section">
@@ -99,27 +144,51 @@
 
 <style>
 .top-nav { display: flex; gap: 1rem; padding: 1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
-.top-nav a { color: var(--cyan); text-decoration: none; }
+.top-nav a { color: var(--accent); text-decoration: none; }
 .budget-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
 .year-selector { display: flex; align-items: center; gap: 1rem; }
-.year-selector a { color: var(--cyan); text-decoration: none; font-size: 1.5rem; }
+.year-selector a { color: var(--accent); text-decoration: none; font-size: 1.5rem; }
 .budget-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .budget-table th, .budget-table td { border: 1px solid var(--border); padding: 0.5rem; text-align: right; }
 .budget-table th { background: var(--surface); text-align: center; font-weight: 600; color: var(--muted); font-size: 0.75rem; }
 .budget-table th:first-child { text-align: left; }
 .category-row { background: var(--surface); }
-.category-row td { background: var(--bg); color: var(--cyan); }
+.category-row td { background: var(--bg); color: var(--accent); }
 .item-name { text-align: left !important; font-weight: 500; }
 .budget-input { width: 80px; padding: 0.25rem; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); text-align: right; }
-.budget-input:focus { border-color: var(--cyan); outline: none; }
+.budget-input:focus { border-color: var(--accent); outline: none; }
 .budget-actions { margin-top: 1rem; text-align: right; }
-.btn-primary { padding: 0.75rem 1.5rem; background: var(--cyan); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+.btn-primary { padding: 0.75rem 1.5rem; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-top: 1.5rem; }
 .audit-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
 .audit-table th, .audit-table td { padding: 0.5rem; text-align: left; border-bottom: 1px solid var(--border); }
 .audit-table th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; }
 .alert { padding: 1rem; border-radius: 6px; margin-bottom: 1rem; }
 .alert-success { background: #10b98120; border: 1px solid #10b981; color: #10b981; }
+.actual-row { background: var(--surface-alt); color: var(--muted); font-size: 0.82rem; }
+.actual-label, .metric-label { color: var(--muted); font-size: 0.72rem; font-weight: 600; text-transform: uppercase; }
+.actual-value { color: var(--muted); }
+.profit-row { background: #eff6ff; font-weight: 700; }
+.actual-profit-row { background: #ecfdf5; }
+.net-row { border-top: 2px solid var(--border); }
+.budget-summary { margin-top: 1.5rem; }
+.section-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.section-heading h2 { margin-bottom: 0.25rem; }
+.section-heading p { margin-bottom: 0; }
+.status-badge { border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 0.78rem; padding: 0.35rem 0.65rem; white-space: nowrap; }
+.budget-chart { align-items: end; display: grid; grid-template-columns: repeat(12, minmax(36px, 1fr)); gap: 0.55rem; height: 220px; margin-top: 1.5rem; }
+.chart-month { align-items: center; display: flex; flex-direction: column; height: 100%; justify-content: end; gap: 0.35rem; }
+.chart-bars { align-items: end; display: flex; gap: 0.2rem; height: 190px; width: 100%; }
+.bar { border-radius: 4px 4px 0 0; min-height: 2px; width: 50%; }
+.forecast-bar { background: var(--accent); }
+.actual-bar { background: #0f766e; }
+.chart-month > span { color: var(--muted); font-size: 0.72rem; }
+.chart-legend { display: flex; gap: 1rem; margin-top: 0.75rem; color: var(--muted); font-size: 0.78rem; }
+.chart-legend span { align-items: center; display: inline-flex; gap: 0.35rem; }
+.legend-swatch { border-radius: 3px; display: inline-block; height: 0.7rem; width: 0.7rem; }
+.forecast-swatch { background: var(--accent); }
+.actual-swatch { background: #0f766e; }
+@media (max-width: 900px) { .budget-controller { overflow-x: auto; } .budget-summary { min-width: 700px; } }
 </style>
 
 <script>
