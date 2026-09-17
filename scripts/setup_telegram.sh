@@ -40,25 +40,38 @@ echo
 # ---------------------------------------------------------------- input ----
 read -rsp "TELEGRAM_BOT_TOKEN (from @BotFather, hidden): " TELEGRAM_BOT_TOKEN; echo
 read -rsp "TELEGRAM_ALLOWED_CHAT_ID (digits, hidden): " TELEGRAM_ALLOWED_CHAT_ID; echo
-read -rsp "TELEGRAM_WEBHOOK_SECRET (random string, hidden): " TELEGRAM_WEBHOOK_SECRET; echo
+read -rsp "TELEGRAM_WEBHOOK_SECRET (Enter to auto-generate, hidden): " TELEGRAM_WEBHOOK_SECRET; echo
 
-for pair in \
-  "TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}" \
-  "TELEGRAM_ALLOWED_CHAT_ID=${TELEGRAM_ALLOWED_CHAT_ID}" \
-  "TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET}"; do
-  name="${pair%%=*}"
-  value="${pair#*=}"
-  [ -n "${value}" ] || die "${name} cannot be empty (Secret Manager rejects empty payloads)."
-done
+[ -n "${TELEGRAM_BOT_TOKEN}" ] || die "TELEGRAM_BOT_TOKEN cannot be empty."
+[ -n "${TELEGRAM_ALLOWED_CHAT_ID}" ] || die "TELEGRAM_ALLOWED_CHAT_ID cannot be empty (Secret Manager rejects empty payloads)."
 
-# Telegram secret tokens allow only A-Z a-z 0-9 _ - ; a stray character makes
-# every webhook delivery fail the HMAC comparison in app.py.
-if ! printf '%s' "${TELEGRAM_WEBHOOK_SECRET}" | grep -Eq '^[A-Za-z0-9_-]+$'; then
-  die "TELEGRAM_WEBHOOK_SECRET may only contain A-Z a-z 0-9 _ and - (Telegram restriction)."
-fi
 if ! printf '%s' "${TELEGRAM_ALLOWED_CHAT_ID}" | grep -Eq '^-?[0-9]+$'; then
   die "TELEGRAM_ALLOWED_CHAT_ID must be a numeric Telegram chat id."
 fi
+
+# Telegram restricts secret_token to A-Z a-z 0-9 _ and - (1-256 characters).
+# A base64 value that still carries + / or = is rejected by setWebhook, and a
+# rejected secret means every delivery fails the HMAC comparison in app.py.
+# Generate a compliant value instead of letting an arbitrary string through.
+generate_webhook_secret() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 24
+  else
+    python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+  fi
+}
+
+while :; do
+  if [ -z "${TELEGRAM_WEBHOOK_SECRET}" ]; then
+    TELEGRAM_WEBHOOK_SECRET="$(generate_webhook_secret)"
+    info "No value entered; generated TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}"
+  fi
+  if printf '%s' "${TELEGRAM_WEBHOOK_SECRET}" | grep -Eq '^[A-Za-z0-9_-]{1,256}$'; then
+    break
+  fi
+  echo "  Rejected: Telegram secret_token allows only A-Z a-z 0-9 _ and - (1-256 characters)."
+  read -rsp "  Paste a different value, or press Enter to auto-generate: " TELEGRAM_WEBHOOK_SECRET; echo
+done
 echo
 
 # ------------------------------------------------------- secret manager ----
