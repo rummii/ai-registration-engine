@@ -4,7 +4,7 @@ import html
 import hashlib
 import json
 from urllib import request as url_request
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from flask import Flask, request, redirect, url_for, render_template, session, flash, g, jsonify, abort, Response
@@ -165,7 +165,12 @@ def health_check():
 
 
 def _telegram_api(method, payload, *, timeout=10):
-    """POST to the Telegram Bot API, returning the decoded body or None."""
+    """POST to the Telegram Bot API, returning the decoded body or None.
+
+    A 4xx still carries a JSON body with the reason, so that is returned too.
+    The description is the only way to distinguish a harmless "message is not
+    modified" from a genuinely malformed request.
+    """
     if not TELEGRAM_BOT_TOKEN:
         return None
 
@@ -179,6 +184,16 @@ def _telegram_api(method, payload, *, timeout=10):
     try:
         with url_request.urlopen(telegram_request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        try:
+            result = json.loads(exc.read().decode("utf-8"))
+        except (OSError, ValueError):
+            app.logger.error("Telegram API call %s failed: HTTP %s", method, exc.code)
+            return None
+        app.logger.warning(
+            "Telegram API call %s rejected: %s", method, result.get("description")
+        )
+        return result
     except (OSError, URLError, ValueError):
         app.logger.exception("Telegram API call %s failed", method)
         return None
@@ -200,14 +215,30 @@ def _send_telegram_message(chat_id, text, reply_markup=None):
 
 
 def _edit_telegram_message(chat_id, message_id, text, reply_markup=None):
-    """Replace a message in place so keyboards update instead of stacking up."""
+    """Replace a message in place so keyboards update instead of stacking up.
+
+    Falls back to sending a new message when Telegram refuses the edit: the text
+    may be identical ("message is not modified"), the message may be too old to
+    edit, or Telegram may no longer have it. Without the fallback the screen
+    silently does not change and the button looks broken.
+    """
     if not message_id:
         return _send_telegram_message(chat_id, text, reply_markup)
 
     payload = {"chat_id": chat_id, "message_id": message_id, "text": text}
     if reply_markup is not None:
         payload["reply_markup"] = reply_markup
-    return _telegram_api("editMessageText", payload)
+
+    result = _telegram_api("editMessageText", payload)
+    if result and result.get("ok"):
+        return message_id
+
+    description = str((result or {}).get("description") or "")
+    if "not modified" in description.lower():
+        # The user is already looking at exactly this screen; nothing to redraw.
+        return message_id
+
+    return _send_telegram_message(chat_id, text, reply_markup)
 
 
 def _answer_callback_query(callback_id, text=None):
@@ -347,6 +378,19 @@ def _current_actual(db, fiscal_year, month_index, line_item_name):
     return float(row["actual_amount"]) if row else 0.0
 
 
+def _normalize_update_id(telegram_update_id):
+    """Coerce a Telegram update id to the text form stored in the database.
+
+    Telegram sends update_id as a JSON number while every column holding it is
+    TEXT. PostgreSQL will not compare text to integer (SQLite silently coerces,
+    which is why this only failed in production), so normalise before it ever
+    reaches a query.
+    """
+    if telegram_update_id is None:
+        return None
+    return str(telegram_update_id)
+
+
 def _record_expense(*, chat_id, category, line_item_name, fiscal_year, month_index,
                     amount, voucher_object, telegram_update_id):
     """Log an expense and add it to the month's actual.
@@ -355,6 +399,7 @@ def _record_expense(*, chat_id, category, line_item_name, fiscal_year, month_ind
     an update that was already applied, which is what the unique
     telegram_update_id on the ledger is for.
     """
+    telegram_update_id = _normalize_update_id(telegram_update_id)
     db = get_db()
     try:
         if telegram_update_id:
@@ -413,6 +458,7 @@ def _month_expense_total(db, fiscal_year, month_index):
 
 
 def _record_budget_actual(message, *, chat_id, telegram_update_id, telegram_message_id):
+    telegram_update_id = _normalize_update_id(telegram_update_id)
     db = get_db()
     try:
         if telegram_update_id:
@@ -974,7 +1020,7 @@ def telegram_webhook():
             return jsonify({"error": "Unauthorized webhook request."}), 403
 
     update = request.get_json(silent=True) or {}
-    update_id = update.get('update_id')
+    update_id = _normalize_update_id(update.get('update_id'))
     chat_id = _chat_id_from_update(update)
 
     if chat_id is None:

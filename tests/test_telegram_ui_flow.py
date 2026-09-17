@@ -540,3 +540,119 @@ def test_button_press_advances_the_flow(telegram_app):
 
     assert "Promotion Expenses" in completed_texts(calls)[-1]
     assert session_for(app_module)["category"] == "Promotion Expenses"
+
+
+# --------------------------------------------- update id typing (Postgres) ----
+#
+# Telegram sends update_id as a JSON number while the columns holding it are TEXT.
+# SQLite coerces silently so these tests cannot reproduce the database error
+# itself, but they do pin the normalisation that production depends on.
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [(12345, "12345"), ("12345", "12345"), (0, "0"), (None, None)],
+)
+def test_normalize_update_id(telegram_app, value, expected):
+    app_module, client, calls = telegram_app
+
+    assert app_module._normalize_update_id(value) == expected
+
+
+def test_update_id_is_stored_as_text(telegram_app):
+    """Regression: raw ints produced "operator does not exist: text = integer"."""
+    app_module, client, calls = telegram_app
+
+    recorded, _ = app_module._record_expense(
+        chat_id=CHAT_ID,
+        category="Fixed Costs",
+        line_item_name="Rent",
+        fiscal_year=2026,
+        month_index=9,
+        amount=1.0,
+        voucher_object="",
+        telegram_update_id=12345,  # int, exactly as Telegram delivers it
+    )
+
+    assert recorded is True
+    with db_module.get_db() as db:
+        row = db.execute(
+            "SELECT telegram_update_id FROM expense_transactions"
+        ).fetchone()
+    assert row["telegram_update_id"] == "12345"
+
+
+def test_int_and_text_update_ids_dedupe_identically(telegram_app):
+    """A redelivery must be recognised whichever form the id arrives in."""
+    app_module, client, calls = telegram_app
+
+    def record(update_id):
+        return app_module._record_expense(
+            chat_id=CHAT_ID,
+            category="Fixed Costs",
+            line_item_name="Rent",
+            fiscal_year=2026,
+            month_index=9,
+            amount=1.0,
+            voucher_object="",
+            telegram_update_id=update_id,
+        )
+
+    first, total_after_first = record(555)
+    second, total_after_second = record("555")
+
+    assert first is True
+    assert second is False, "the text form of the same id must be seen as a duplicate"
+    assert total_after_first == total_after_second == 1.0
+
+
+def test_legacy_budget_path_also_normalises_update_ids(telegram_app):
+    """The typed format shares the same id column and had the same defect."""
+    app_module, client, calls = telegram_app
+
+    response = send_text(client, "BUDGET|Marketing|2026|09|25000", update_id=4242)
+
+    assert response.get_json() == {"ok": True, "recorded": True}
+    with db_module.get_db() as db:
+        row = db.execute(
+            "SELECT telegram_update_id FROM budget_actuals_audit_log WHERE telegram_update_id IS NOT NULL"
+        ).fetchone()
+    assert row["telegram_update_id"] == "4242"
+
+
+# ---------------------------------------------------- message edit fallback ----
+
+
+def test_failed_edit_falls_back_to_a_new_message(telegram_app, monkeypatch):
+    """Otherwise the screen silently does not change and the button looks broken."""
+    app_module, client, calls = telegram_app
+    calls.clear()
+
+    def fake_api(method, payload, timeout=10):
+        calls.append((method, payload))
+        if method == "editMessageText":
+            return {"ok": False, "description": "Bad Request: message to edit not found"}
+        return {"ok": True, "result": {"message_id": 7}}
+
+    monkeypatch.setattr(app_module, "_telegram_api", fake_api)
+
+    app_module._edit_telegram_message(CHAT_ID, 42, "hello", None)
+
+    assert [method for method, _ in calls] == ["editMessageText", "sendMessage"]
+
+
+def test_unmodified_edit_does_not_send_a_duplicate(telegram_app, monkeypatch):
+    app_module, client, calls = telegram_app
+    calls.clear()
+
+    def fake_api(method, payload, timeout=10):
+        calls.append((method, payload))
+        if method == "editMessageText":
+            return {"ok": False, "description": "Bad Request: message is not modified"}
+        return {"ok": True, "result": {"message_id": 7}}
+
+    monkeypatch.setattr(app_module, "_telegram_api", fake_api)
+
+    app_module._edit_telegram_message(CHAT_ID, 42, "hello", None)
+
+    assert [method for method, _ in calls] == ["editMessageText"], "must not spam"
