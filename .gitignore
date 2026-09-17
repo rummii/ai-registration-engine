@@ -15,3 +15,7 @@ passenger_wsgi.py
 .agents/
 skills-lock.json
 static/img/
+# Service account keys produced by scripts/setup_deployer.sh must never be
+# committed. Store the key in the GCP_SERVICE_ACCOUNT_KEY GitHub secret instead.
+*-key.json
+github-deployer*.json

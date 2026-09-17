@@ -106,10 +106,32 @@ sends it as the `X-Telegram-Bot-Api-Secret-Token` header and compares it with
 `hmac.compare_digest`. If the secret is unset in production the webhook fails closed
 with HTTP 403.
 
+### Setting up Telegram end to end
+
+Either let the deploy workflow sync the secrets (add `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_ALLOWED_CHAT_ID` and `TELEGRAM_WEBHOOK_SECRET` as repository secrets and
+push), or run the helper from any machine with `gcloud` and `curl`:
+
+```bash
+bash scripts/setup_telegram.sh
+```
+
+The script prompts for the three values without echoing them (so they never reach
+shell history), stores them as UTF-8 Secret Manager secrets, grants
+`roles/secretmanager.secretAccessor` to the Cloud Run runtime service account, binds
+them to the service with `--update-secrets`, and calls Telegram `setWebhook` /
+`getWebhookInfo`. A 403 from `/telegram/webhook` means the secret is not bound; a 200
+in `getWebhookInfo` with a non-empty `url` and `last_error_message` absent means
+deliveries are arriving.
+
+Telegram only accepts `A-Z a-z 0-9 _ -` in `secret_token`, and the script enforces
+that, because a rejected secret makes every delivery fail the HMAC comparison.
+
 ## Fixing a failed deployment
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| `Authenticate to Google Cloud` step fails and every later step is skipped | `GCP_SERVICE_ACCOUNT_KEY` missing, malformed, or its key was revoked | Run `bash scripts/setup_deployer.sh` and store the printed key as the `GCP_SERVICE_ACCOUNT_KEY` repository secret. |
 | `Secret Manager API has not been used in project … or it is disabled` | API not enabled | `gcloud services enable secretmanager.googleapis.com --project <project>` |
 | `Permission denied on secret … roles/secretmanager.secretAccessor` | Runtime SA lacks access | Grant `roles/secretmanager.secretAccessor` to the runtime SA (the workflow does this). |
 | `Secret … contains non-UTF8 data. Instance startup will now abort.` | Secret written with a BOM / UTF-16 | Recreate the version with UTF-8 (use `printf '%s' … \| gcloud secrets versions add`). |
