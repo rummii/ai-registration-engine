@@ -43,6 +43,15 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_ALLOWED_CHAT_ID = os.environ.get("TELEGRAM_ALLOWED_CHAT_ID", "")
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
 
+# Cloud Storage bucket holding voucher photos uploaded through the Telegram bot.
+# Not a secret, so it is safe to default. When empty, voucher uploads are
+# reported to the user as unavailable instead of failing the whole expense.
+VOUCHER_BUCKET = os.environ.get("VOUCHER_BUCKET", "aiex-registration-vouchers-223942147362")
+
+# Telegram downloads a photo in one request, so cap what we are willing to fetch
+# and store. Telegram's largest photo rendition is well under this.
+MAX_VOUCHER_BYTES = 10 * 1024 * 1024
+
 # Security settings
 MAX_CONTENT_LENGTH = 1 * 1024 * 1024  # 1 MB max request size
 

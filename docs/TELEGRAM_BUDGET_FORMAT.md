@@ -2,6 +2,10 @@
 
 The budget controller accepts actual expense updates from the configured Telegram chat.
 
+> Prefer buttons? The bot has an inline-keyboard interface that means never typing a
+> line item name — see [TELEGRAM_BOT_UI.md](TELEGRAM_BOT_UI.md). The typed format below
+> still works and **sets** the month's actual, whereas the button flow **adds** to it.
+
 ## Message format
 
 ```text

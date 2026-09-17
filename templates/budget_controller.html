@@ -140,6 +140,43 @@
         </table>
     </div>
     {% endif %}
+
+    {% if recent_expenses %}
+    <div class="card audit-section">
+        <h2>Telegram expenses</h2>
+        <p style="color:var(--muted); margin-bottom:0;">Expenses logged through the Telegram
+        button flow. The month's actuals above already include these amounts.</p>
+        <table class="audit-table">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Category</th>
+                    <th>Line item</th>
+                    <th>Amount</th>
+                    <th>Voucher</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for expense in recent_expenses %}
+                <tr>
+                    <td>{{ expense.timestamp[:19] }}</td>
+                    <td>{{ expense.category or '-' }}</td>
+                    <td>{{ expense.line_item_name }}</td>
+                    <td>{{ "%.2f"|format(expense.amount) }}</td>
+                    <td>
+                        {% if expense.voucher_object %}
+                        <a href="{{ url_for('view_voucher', object_name=expense.voucher_object) }}"
+                           target="_blank" rel="noopener">View receipt</a>
+                        {% else %}
+                        <span style="color:var(--muted);">none</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
 </div>
 
 <style>

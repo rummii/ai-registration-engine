@@ -6,7 +6,8 @@ import json
 from urllib import request as url_request
 from urllib.error import URLError
 from datetime import datetime, timedelta
-from flask import Flask, request, redirect, url_for, render_template, session, flash, g, jsonify
+from decimal import Decimal, InvalidOperation
+from flask import Flask, request, redirect, url_for, render_template, session, flash, g, jsonify, abort, Response
 from functools import wraps
 from config import (
     SECRET_KEY,
@@ -19,9 +20,47 @@ from config import (
     TELEGRAM_ALLOWED_CHAT_ID,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_WEBHOOK_SECRET,
+    MAX_VOUCHER_BYTES,
 )
 from db import get_db, hash_password, init_db, migrate_price_data
 from telegram_handler import BudgetMessageError, parse_budget_message
+from budget_structure import FINANCIAL_STRUCTURE, MONTHS
+import storage
+from telegram_ui import (
+    ACTION_AMOUNT,
+    ACTION_CANCEL,
+    ACTION_CATEGORY,
+    ACTION_CORRECTION,
+    ACTION_ITEM,
+    ACTION_KEEP,
+    ACTION_NAV,
+    ACTION_PERIOD,
+    ACTION_SAVE,
+    ACTION_SKIP,
+    ACTION_YEAR,
+    NAV_HELP,
+    NAV_MENU,
+    NAV_NEW,
+    NAV_SUMMARY,
+    STEP_AMOUNT,
+    STEP_CATEGORY,
+    STEP_CONFIRM,
+    STEP_ITEM,
+    STEP_PERIOD,
+    STEP_VOUCHER,
+    build_category_menu,
+    build_confirm_menu,
+    build_item_menu,
+    build_main_menu,
+    build_period_menu,
+    build_saved_menu,
+    build_voucher_menu,
+    parse_callback,
+    render_inline_keyboard,
+    resolve_category,
+    resolve_item,
+    slugify,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, template_folder=os.path.join(BASE_DIR, "templates"), static_folder=os.path.join(BASE_DIR, "static"))
@@ -125,23 +164,89 @@ def health_check():
     return jsonify({"status": "ok", "service": "ai-registration-engine"})
 
 
-def _send_telegram_message(chat_id, text):
-    """Send an optional Telegram acknowledgement without breaking the webhook."""
+def _telegram_api(method, payload, *, timeout=10):
+    """POST to the Telegram Bot API, returning the decoded body or None."""
     if not TELEGRAM_BOT_TOKEN:
-        return
+        return None
 
-    payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
+    body = json.dumps(payload).encode("utf-8")
     telegram_request = url_request.Request(
-        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-        data=payload,
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}",
+        data=body,
         headers={"Content-Type": "application/json"},
         method="POST",
     )
     try:
-        with url_request.urlopen(telegram_request, timeout=5):
-            pass
+        with url_request.urlopen(telegram_request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (OSError, URLError, ValueError):
+        app.logger.exception("Telegram API call %s failed", method)
+        return None
+
+
+def _send_telegram_message(chat_id, text, reply_markup=None):
+    """Send a message, optionally with an inline keyboard.
+
+    Returns the new message id so flows can edit it in place later.
+    """
+    payload = {"chat_id": chat_id, "text": text}
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+
+    result = _telegram_api("sendMessage", payload)
+    if result and result.get("ok"):
+        return result["result"].get("message_id")
+    return None
+
+
+def _edit_telegram_message(chat_id, message_id, text, reply_markup=None):
+    """Replace a message in place so keyboards update instead of stacking up."""
+    if not message_id:
+        return _send_telegram_message(chat_id, text, reply_markup)
+
+    payload = {"chat_id": chat_id, "message_id": message_id, "text": text}
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+    return _telegram_api("editMessageText", payload)
+
+
+def _answer_callback_query(callback_id, text=None):
+    """Acknowledge a button press.
+
+    Telegram shows a spinner on the button until this is called, and retries the
+    delivery if the webhook is slow, so it runs before any real work.
+    """
+    payload = {"callback_query_id": callback_id}
+    if text:
+        payload["text"] = text
+    _telegram_api("answerCallbackQuery", payload)
+
+
+def _download_telegram_file(file_id):
+    """Fetch a Telegram file into memory, or None when unavailable."""
+    if not TELEGRAM_BOT_TOKEN:
+        return None
+
+    info = _telegram_api("getFile", {"file_id": file_id})
+    if not info or not info.get("ok"):
+        return None
+
+    file_path = (info.get("result") or {}).get("file_path")
+    if not file_path:
+        return None
+
+    url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+    try:
+        with url_request.urlopen(url, timeout=30) as response:
+            data = response.read(MAX_VOUCHER_BYTES + 1)
     except (OSError, URLError):
-        app.logger.exception("Unable to send Telegram acknowledgement")
+        app.logger.exception("Unable to download the Telegram voucher")
+        return None
+
+    if len(data) > MAX_VOUCHER_BYTES:
+        app.logger.warning("Telegram voucher exceeded the size limit")
+        return None
+    return data
 
 
 def _budget_line_items():
@@ -150,6 +255,161 @@ def _budget_line_items():
         for items in FINANCIAL_STRUCTURE.values()
         for item in items
     }
+
+
+# --- Telegram interactive UI state ---
+#
+# Cloud Run runs several stateless instances with no sticky routing, so a button
+# press can land on a different instance than the one that drew the keyboard. The
+# in-progress draft therefore lives in telegram_sessions, keyed by chat_id;
+# keeping it in memory would lose the user's place between taps.
+
+
+def _load_session(db, chat_id):
+    """Return the pending draft for a chat, or None."""
+    row = db.execute(
+        "SELECT * FROM telegram_sessions WHERE chat_id = ?", (str(chat_id),)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _save_session(db, chat_id, step, *, category="", line_item_name="",
+                  fiscal_year=None, month_index=None, amount=None,
+                  voucher_object="", prompt_message_id=None):
+    """Replace the draft for a chat.
+
+    Delete-then-insert keeps this portable: SQLite and PostgreSQL disagree on
+    UPSERT syntax and the DBAdapter only translates the common cases.
+    """
+    db.execute("DELETE FROM telegram_sessions WHERE chat_id = ?", (str(chat_id),))
+    db.execute(
+        """INSERT INTO telegram_sessions
+           (chat_id, step, category, line_item_name, fiscal_year, month_index,
+            amount, voucher_object, prompt_message_id, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            str(chat_id), step, category or "", line_item_name or "",
+            fiscal_year, month_index, amount, voucher_object or "",
+            str(prompt_message_id) if prompt_message_id else None,
+            datetime.utcnow().isoformat(),
+        ),
+    )
+    db.commit()
+
+
+def _clear_session(db, chat_id):
+    db.execute("DELETE FROM telegram_sessions WHERE chat_id = ?", (str(chat_id),))
+    db.commit()
+
+
+def _show(chat_id, message_id, text, keyboard):
+    """Render a screen, editing the existing message when we have its id."""
+    markup = render_inline_keyboard(keyboard)
+    if message_id:
+        return _edit_telegram_message(chat_id, message_id, text, markup)
+    return _send_telegram_message(chat_id, text, markup)
+
+
+def _increment_actual(db, fiscal_year, month_index, line_item_name, amount):
+    """Add to the cached monthly actual, creating the row when it is missing.
+
+    Upsert rather than insert-then-update: the budget page only seeds rows for
+    the year being viewed, so a month in any other year has no row yet. The two
+    backends need different conflict syntax, hence the branch.
+    """
+    if getattr(db, "postgres", False):
+        db.execute(
+            """INSERT INTO budget_actuals_cache
+               (fiscal_year, month_index, line_item_name, actual_amount)
+               VALUES (%s, %s, %s, %s)
+               ON CONFLICT (fiscal_year, month_index, line_item_name)
+               DO UPDATE SET actual_amount =
+                   budget_actuals_cache.actual_amount + EXCLUDED.actual_amount""",
+            (fiscal_year, month_index, line_item_name, amount),
+        )
+    else:
+        db.execute(
+            """INSERT INTO budget_actuals_cache
+               (fiscal_year, month_index, line_item_name, actual_amount)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT (fiscal_year, month_index, line_item_name)
+               DO UPDATE SET actual_amount = actual_amount + excluded.actual_amount""",
+            (fiscal_year, month_index, line_item_name, amount),
+        )
+
+
+def _current_actual(db, fiscal_year, month_index, line_item_name):
+    row = db.execute(
+        """SELECT actual_amount FROM budget_actuals_cache
+           WHERE fiscal_year = ? AND month_index = ? AND line_item_name = ?""",
+        (fiscal_year, month_index, line_item_name),
+    ).fetchone()
+    return float(row["actual_amount"]) if row else 0.0
+
+
+def _record_expense(*, chat_id, category, line_item_name, fiscal_year, month_index,
+                    amount, voucher_object, telegram_update_id):
+    """Log an expense and add it to the month's actual.
+
+    Returns (recorded, running_total). recorded is False when Telegram redelivered
+    an update that was already applied, which is what the unique
+    telegram_update_id on the ledger is for.
+    """
+    db = get_db()
+    try:
+        if telegram_update_id:
+            duplicate = db.execute(
+                "SELECT id FROM expense_transactions WHERE telegram_update_id = ?",
+                (telegram_update_id,),
+            ).fetchone()
+            if duplicate:
+                return False, _current_actual(
+                    db, fiscal_year, month_index, line_item_name
+                )
+
+        _increment_actual(db, fiscal_year, month_index, line_item_name, amount)
+        running_total = _current_actual(db, fiscal_year, month_index, line_item_name)
+        now = datetime.utcnow().isoformat()
+        detail = f"Expense logged from the Telegram UI ({category or 'uncategorised'})."
+
+        db.execute(
+            """INSERT INTO expense_transactions
+               (telegram_update_id, timestamp, chat_id, category, line_item_name,
+                fiscal_year, month_index, amount, running_total, voucher_object,
+                status, detail)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                telegram_update_id, now, str(chat_id), category or "",
+                line_item_name, fiscal_year, month_index, amount, running_total,
+                voucher_object or "", "RECORDED", detail,
+            ),
+        )
+        # Mirror into the budget audit trail so the budget page reports Telegram
+        # activity and its "actuals live" badge stays accurate.
+        db.execute(
+            """INSERT INTO budget_actuals_audit_log
+               (telegram_update_id, timestamp, chat_id, message_id, fiscal_year,
+                month_index, line_item_name, amount, status, detail)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                telegram_update_id, now, str(chat_id), None, fiscal_year,
+                month_index, line_item_name, amount, "RECORDED", detail,
+            ),
+        )
+        db.commit()
+        return True, running_total
+    finally:
+        db.close()
+
+
+def _month_expense_total(db, fiscal_year, month_index):
+    """Sum the ledger for a month so the summary reflects what was logged."""
+    row = db.execute(
+        """SELECT COALESCE(SUM(amount), 0) AS total FROM expense_transactions
+           WHERE fiscal_year = ? AND month_index = ? AND status = 'RECORDED'""",
+        (fiscal_year, month_index),
+    ).fetchone()
+    return float(row["total"]) if row and row["total"] is not None else 0.0
 
 
 def _record_budget_actual(message, *, chat_id, telegram_update_id, telegram_message_id):
@@ -194,6 +454,484 @@ def _record_budget_actual(message, *, chat_id, telegram_update_id, telegram_mess
         db.close()
 
 
+# --- Telegram UI screens ---
+
+
+def _set_step(chat_id, step, *, message_id=None, **overrides):
+    """Advance the draft to a new step, carrying existing fields forward.
+
+    Every screen goes through here so a partially filled draft is never lost when
+    the user jumps back or re-enters an amount.
+    """
+    db = get_db()
+    try:
+        current = _load_session(db, chat_id) or {}
+        fields = {
+            "category": current.get("category") or "",
+            "line_item_name": current.get("line_item_name") or "",
+            "fiscal_year": current.get("fiscal_year"),
+            "month_index": current.get("month_index"),
+            "amount": current.get("amount"),
+            "voucher_object": current.get("voucher_object") or "",
+            "prompt_message_id": current.get("prompt_message_id"),
+        }
+        fields.update(overrides)
+        if message_id:
+            fields["prompt_message_id"] = str(message_id)
+        _save_session(db, chat_id, step, **fields)
+    finally:
+        db.close()
+
+
+def _ui_menu(chat_id, *, message_id=None, text=None):
+    # No session write: the menu is the resting state, and persisting it would
+    # mean cancelling recreated a row instead of discarding the draft.
+    _show(
+        chat_id,
+        message_id,
+        text or (
+            "🏠 AIEX budget bot\n\n"
+            "Log an expense using the buttons below — you never have to type a "
+            "line item name."
+        ),
+        build_main_menu(),
+    )
+
+
+def _ui_categories(chat_id, *, message_id=None):
+    _set_step(chat_id, STEP_CATEGORY, message_id=message_id)
+    _show(
+        chat_id,
+        message_id,
+        "Step 1 of 4 · Select a category:",
+        build_category_menu(FINANCIAL_STRUCTURE),
+    )
+
+
+def _ui_items(chat_id, category_slug, *, message_id=None):
+    keyboard = build_item_menu(FINANCIAL_STRUCTURE, category_slug)
+    category = resolve_category(FINANCIAL_STRUCTURE, category_slug)
+
+    if keyboard is None or category is None:
+        # The structure changed under a stale keyboard; recover instead of erroring.
+        _ui_categories(chat_id, message_id=message_id)
+        return
+
+    _set_step(chat_id, STEP_ITEM, message_id=message_id, category=category)
+    _show(
+        chat_id,
+        message_id,
+        f"Step 2 of 4 · {category}\n\nSelect the line item:",
+        keyboard,
+    )
+
+
+def _ui_periods(chat_id, *, year=None, message_id=None):
+    db = get_db()
+    try:
+        session = _load_session(db, chat_id) or {}
+    finally:
+        db.close()
+
+    category = session.get("category") or ""
+    item = session.get("line_item_name") or ""
+    if not category or not item:
+        _ui_categories(chat_id, message_id=message_id)
+        return
+
+    year = year or session.get("fiscal_year") or datetime.now().year
+    _set_step(chat_id, STEP_PERIOD, message_id=message_id, fiscal_year=year)
+    _show(
+        chat_id,
+        message_id,
+        f"Step 3 of 4 · {item} ({category})\n\nSelect the month:",
+        build_period_menu(year),
+    )
+
+
+def _session(chat_id):
+    """Load the current draft as a plain dict."""
+    db = get_db()
+    try:
+        return _load_session(db, chat_id) or {}
+    finally:
+        db.close()
+
+
+def _describe_draft(session):
+    """One-line description of a draft, used in prompts and the confirmation."""
+    item = session.get("line_item_name") or "?"
+    category = session.get("category") or ""
+    year = session.get("fiscal_year")
+    month = session.get("month_index")
+    period = f"{MONTHS[int(month) - 1]} {year}" if month and year else "?"
+    return f"{item} · {period}" + (f"  ({category})" if category else "")
+
+
+def _ui_prompt_amount(chat_id, *, note=None):
+    session = _session(chat_id)
+    if not session.get("line_item_name") or not session.get("month_index"):
+        _ui_categories(chat_id)
+        return
+
+    prefix = f"{note}\n\n" if note else ""
+    sent = _send_telegram_message(
+        chat_id,
+        f"{prefix}Step 4 of 4 · {_describe_draft(session)}\n\n"
+        "Send the amount as a plain number, for example 25000 or 1500.50.",
+    )
+    _set_step(chat_id, STEP_AMOUNT, message_id=sent)
+
+
+def _ui_prompt_voucher(chat_id, *, note=None):
+    session = _session(chat_id)
+    prefix = f"{note}\n\n" if note else ""
+    sent = _send_telegram_message(
+        chat_id,
+        f"{prefix}📸 Send the receipt or voucher photo for {_describe_draft(session)}, "
+        "or tap Skip.",
+        render_inline_keyboard(build_voucher_menu()),
+    )
+    _set_step(chat_id, STEP_VOUCHER, message_id=sent)
+
+
+def _ui_confirm(chat_id, *, note=None):
+    session = _session(chat_id)
+    amount = session.get("amount")
+    if amount is None:
+        _ui_prompt_amount(chat_id)
+        return
+
+    voucher = session.get("voucher_object") or ""
+    prefix = f"{note}\n\n" if note else ""
+    sent = _send_telegram_message(
+        chat_id,
+        f"{prefix}Confirm this expense:\n\n"
+        f"  Line item: {session.get('line_item_name') or '?'}\n"
+        f"  Category:  {session.get('category') or '-'}\n"
+        f"  Period:    {_describe_draft(session).split('· ')[-1].split('  ')[0]}\n"
+        f"  Amount:    {float(amount):,.2f}\n"
+        f"  Voucher:   {'attached' if voucher else 'none'}\n\n"
+        "Saving adds this amount to the month's actual.",
+        render_inline_keyboard(build_confirm_menu()),
+    )
+    _set_step(chat_id, STEP_CONFIRM, message_id=sent)
+
+
+def _ui_help(chat_id, *, message_id=None):
+    _show(
+        chat_id,
+        message_id,
+        "❓ How this works\n\n"
+        "➕ Log expense — pick a category, a line item and a month, then send the "
+        "amount and optionally a voucher photo. Each entry is added to that "
+        "month's actual total.\n\n"
+        "Text shortcuts still work if you prefer typing:\n"
+        "  BUDGET|LineItem|YYYY|MM|Amount  (sets the actual)\n"
+        "  /expense  open the button flow\n"
+        "  /summary  this month's totals\n"
+        "  /cancel   discard the current draft\n\n"
+        "Commands: /start  /expense  /summary  /help  /cancel",
+        build_main_menu(),
+    )
+
+
+def _ui_cancel(chat_id, *, message_id=None):
+    db = get_db()
+    try:
+        _clear_session(db, chat_id)
+    finally:
+        db.close()
+    _ui_menu(chat_id, message_id=message_id, text="Draft discarded. Nothing was saved.")
+
+
+def _ui_summary(chat_id, *, message_id=None):
+    now = datetime.now()
+    year, month = now.year, now.month
+    db = get_db()
+    try:
+        total = _month_expense_total(db, year, month)
+        rows = db.execute(
+            """SELECT line_item_name, COALESCE(SUM(amount), 0) AS total
+               FROM expense_transactions
+               WHERE fiscal_year = ? AND month_index = ? AND status = 'RECORDED'
+               GROUP BY line_item_name
+               ORDER BY line_item_name""",
+            (year, month),
+        ).fetchall()
+    finally:
+        db.close()
+
+    label = f"{MONTHS[month - 1]} {year}"
+    if not rows:
+        body = f"📊 {label}\n\nNo expenses logged this month yet."
+    else:
+        lines = [f"  {row['line_item_name']}: {float(row['total']):,.2f}" for row in rows]
+        body = f"📊 {label}\n\n" + "\n".join(lines) + f"\n\nTotal: {total:,.2f}"
+
+    _show(chat_id, message_id, body, build_main_menu())
+
+
+# --- Telegram UI input handlers ---
+
+
+def _ui_save(chat_id, *, update_id):
+    """Commit the draft, add it to the month's actual, and show a receipt."""
+    session = _session(chat_id)
+    item = session.get("line_item_name")
+    year = session.get("fiscal_year")
+    month = session.get("month_index")
+    amount = session.get("amount")
+
+    if not item or not year or not month or amount is None:
+        _clear_session_safe(chat_id)
+        _ui_menu(chat_id, text="That draft was incomplete, so nothing was saved.")
+        return
+
+    recorded, running_total = _record_expense(
+        chat_id=chat_id,
+        category=session.get("category") or "",
+        line_item_name=item,
+        fiscal_year=int(year),
+        month_index=int(month),
+        amount=float(amount),
+        voucher_object=session.get("voucher_object") or "",
+        telegram_update_id=update_id,
+    )
+    _clear_session_safe(chat_id)
+
+    if recorded:
+        body = (
+            f"✅ Logged {float(amount):,.2f} for {item}\n"
+            f"{MONTHS[int(month) - 1]} {year} total is now {running_total:,.2f}."
+        )
+    else:
+        body = (
+            "ℹ️ Telegram redelivered that update and it was already saved, "
+            "so nothing was added twice."
+        )
+
+    _send_telegram_message(chat_id, body, render_inline_keyboard(build_saved_menu()))
+
+
+def _clear_session_safe(chat_id):
+    db = get_db()
+    try:
+        _clear_session(db, chat_id)
+    finally:
+        db.close()
+
+
+def _handle_amount(chat_id, text):
+    """Treat a plain-text message as the amount for the current draft."""
+    try:
+        amount = Decimal(text.replace(",", "").replace("₱", "").strip())
+    except (InvalidOperation, ValueError, ArithmeticError):
+        _ui_prompt_amount(chat_id, note="That is not a number. Try 25000 or 1500.50.")
+        return
+
+    if not amount.is_finite() or amount <= 0:
+        _ui_prompt_amount(chat_id, note="The amount must be a positive number.")
+        return
+
+    _set_step(chat_id, STEP_AMOUNT, amount=float(amount))
+    _ui_prompt_voucher(chat_id)
+
+
+def _handle_photo(chat_id, telegram_message):
+    """Store an uploaded voucher photo and move on to confirmation."""
+    session = _session(chat_id)
+    if session.get("step") != STEP_VOUCHER:
+        _ui_menu(chat_id, text="Tap ➕ Log expense first, then send the voucher.")
+        return
+
+    photos = telegram_message.get("photo") or []
+    if not photos:
+        _ui_prompt_voucher(chat_id, note="That was not a photo. Try again, or tap Skip.")
+        return
+
+    # The last entry is Telegram's largest rendition, which is what we want to keep.
+    data = _download_telegram_file(photos[-1].get("file_id"))
+    if data is None:
+        _ui_confirm(chat_id, note="⚠️ Could not download that photo. Saving without a voucher.")
+        return
+
+    try:
+        object_name = storage.upload_voucher(data, chat_id=chat_id)
+    except storage.VoucherError as exc:
+        app.logger.warning("Voucher upload failed: %s", exc)
+        _ui_confirm(chat_id, note=f"⚠️ Voucher not stored ({exc}) Saving without it.")
+        return
+
+    _set_step(chat_id, STEP_VOUCHER, voucher_object=object_name)
+    _ui_confirm(chat_id, note="📸 Voucher attached.")
+
+
+def _chat_is_allowed(chat_id):
+    return bool(TELEGRAM_ALLOWED_CHAT_ID) and str(chat_id) == str(TELEGRAM_ALLOWED_CHAT_ID)
+
+
+def _handle_command(chat_id, text):
+    command = text.split()[0].lower().lstrip('/').split('@')[0]
+
+    if command in {"start", "menu"}:
+        _ui_menu(chat_id)
+    elif command in {"expense", "log", "add"}:
+        _ui_categories(chat_id)
+    elif command in {"summary", "month"}:
+        _ui_summary(chat_id)
+    elif command in {"cancel", "stop"}:
+        _ui_cancel(chat_id)
+    elif command == "skip":
+        # /skip only means "no voucher" while we are actually asking for one.
+        if _session(chat_id).get("step") == STEP_VOUCHER:
+            _ui_confirm(chat_id, note="No voucher attached.")
+        else:
+            _ui_cancel(chat_id)
+    else:
+        _ui_help(chat_id)
+
+
+def _handle_callback(chat_id, callback, update_id):
+    """Dispatch a button press, editing the keyboard message in place."""
+    # Acknowledge first: Telegram keeps a spinner on the button until this is
+    # called and retries the delivery when we are slow.
+    _answer_callback_query(callback.get("id"))
+
+    message_id = (callback.get("message") or {}).get("message_id")
+    try:
+        parsed = parse_callback(callback.get("data") or "")
+    except ValueError:
+        app.logger.warning("Unhandled callback data: %r", callback.get("data"))
+        _ui_menu(chat_id, message_id=message_id)
+        return
+
+    if parsed.action == ACTION_NAV:
+        if parsed.value == NAV_NEW:
+            _ui_categories(chat_id, message_id=message_id)
+        elif parsed.value == NAV_SUMMARY:
+            _ui_summary(chat_id, message_id=message_id)
+        elif parsed.value == NAV_HELP:
+            _ui_help(chat_id, message_id=message_id)
+        else:
+            _ui_menu(chat_id, message_id=message_id)
+        return
+
+    if parsed.action == ACTION_CATEGORY:
+        _ui_items(chat_id, parsed.category, message_id=message_id)
+        return
+
+    if parsed.action == ACTION_ITEM:
+        category = resolve_category(FINANCIAL_STRUCTURE, parsed.category)
+        item = resolve_item(FINANCIAL_STRUCTURE, parsed.category, parsed.item)
+        if category is None or item is None:
+            # A keyboard built before the structure changed; restart the flow.
+            _ui_categories(chat_id, message_id=message_id)
+            return
+        _set_step(chat_id, STEP_ITEM, message_id=message_id,
+                  category=category, line_item_name=item)
+        _ui_periods(chat_id, message_id=message_id)
+        return
+
+    if parsed.action == ACTION_YEAR:
+        _ui_periods(chat_id, year=int(parsed.value), message_id=message_id)
+        return
+
+    if parsed.action == ACTION_PERIOD:
+        year_text, _, month_text = parsed.value.partition("-")
+        _set_step(chat_id, STEP_PERIOD, message_id=message_id,
+                  fiscal_year=int(year_text), month_index=int(month_text))
+        _ui_prompt_amount(chat_id)
+        return
+
+    if parsed.action == ACTION_AMOUNT:
+        _ui_prompt_amount(chat_id, note="Send the corrected amount.")
+        return
+
+    if parsed.action == ACTION_SKIP:
+        _ui_confirm(chat_id, note="No voucher attached.")
+        return
+
+    if parsed.action == ACTION_KEEP:
+        _ui_prompt_voucher(chat_id, note="Send the replacement photo.")
+        return
+
+    if parsed.action == ACTION_SAVE:
+        _ui_save(chat_id, update_id=update_id)
+        return
+
+    if parsed.action == ACTION_CANCEL:
+        _ui_cancel(chat_id, message_id=message_id)
+        return
+
+    _ui_menu(chat_id, message_id=message_id)
+
+
+def _handle_legacy_budget(chat_id, telegram_message, text, update_id):
+    """Handle the typed BUDGET|LineItem|YYYY|MM|Amount format.
+
+    This path *sets* the month's actual, matching its documented behaviour, while
+    the button flow *adds* to it. Kept for scripting and for anyone who prefers
+    typing; the button flow is the primary interface.
+    """
+    try:
+        message = parse_budget_message(text, _budget_line_items())
+    except BudgetMessageError as exc:
+        _send_telegram_message(chat_id, f"Budget update rejected: {exc}")
+        return jsonify({"ok": False, "error": str(exc)}), 200
+
+    recorded = _record_budget_actual(
+        message,
+        chat_id=chat_id,
+        telegram_update_id=update_id,
+        telegram_message_id=telegram_message.get('message_id'),
+    )
+    if recorded:
+        _send_telegram_message(
+            chat_id,
+            f"Budget update recorded: {message.line_item_name}, "
+            f"{message.month_index:02d}/{message.fiscal_year} = {message.amount:,.2f}",
+        )
+
+    return jsonify({"ok": True, "recorded": recorded}), 200
+
+
+def _route_message(chat_id, telegram_message, update_id):
+    """Dispatch a message: command, legacy format, voucher photo, or amount."""
+    text = (telegram_message.get('text') or '').strip()
+
+    if text.startswith('/'):
+        _handle_command(chat_id, text)
+        return jsonify({"ok": True}), 200
+
+    # Checked before the amount step so a literal BUDGET message is never parsed
+    # as a number just because a draft happens to be awaiting its amount.
+    if text.upper().startswith('BUDGET'):
+        return _handle_legacy_budget(chat_id, telegram_message, text, update_id)
+
+    if telegram_message.get('photo'):
+        _handle_photo(chat_id, telegram_message)
+        return jsonify({"ok": True}), 200
+
+    if _session(chat_id).get("step") == STEP_AMOUNT:
+        _handle_amount(chat_id, text)
+        return jsonify({"ok": True}), 200
+
+    if text:
+        _ui_menu(
+            chat_id,
+            text=(
+                "I did not understand that.\n\n"
+                "Tap ➕ Log expense to use the buttons, or send "
+                "BUDGET|LineItem|YYYY|MM|Amount."
+            ),
+        )
+    else:
+        _ui_menu(chat_id)
+
+    return jsonify({"ok": True}), 200
+
+
 @app.route('/telegram/webhook', methods=['POST'])
 def telegram_webhook():
     if not TELEGRAM_WEBHOOK_SECRET:
@@ -206,31 +944,23 @@ def telegram_webhook():
             return jsonify({"error": "Unauthorized webhook request."}), 403
 
     update = request.get_json(silent=True) or {}
+    update_id = update.get('update_id')
+
+    # Inline keyboard presses arrive as callback_query, not message.
+    callback = update.get('callback_query')
+    if callback:
+        chat_id = str(((callback.get('message') or {}).get('chat') or {}).get('id', ''))
+        if not _chat_is_allowed(chat_id):
+            return jsonify({"error": "Unauthorized Telegram chat."}), 403
+        _handle_callback(chat_id, callback, update_id)
+        return jsonify({"ok": True}), 200
+
     telegram_message = update.get('message') or update.get('edited_message') or {}
-    chat = telegram_message.get('chat') or {}
-    chat_id = str(chat.get('id', ''))
-    if not TELEGRAM_ALLOWED_CHAT_ID or chat_id != str(TELEGRAM_ALLOWED_CHAT_ID):
+    chat_id = str((telegram_message.get('chat') or {}).get('id', ''))
+    if not _chat_is_allowed(chat_id):
         return jsonify({"error": "Unauthorized Telegram chat."}), 403
 
-    try:
-        message = parse_budget_message(telegram_message.get('text', ''), _budget_line_items())
-    except BudgetMessageError as exc:
-        _send_telegram_message(chat_id, f"Budget update rejected: {exc}")
-        return jsonify({"ok": False, "error": str(exc)}), 200
-
-    recorded = _record_budget_actual(
-        message,
-        chat_id=chat_id,
-        telegram_update_id=update.get('update_id'),
-        telegram_message_id=telegram_message.get('message_id'),
-    )
-    if recorded:
-        _send_telegram_message(
-            chat_id,
-            f"Budget update recorded: {message.line_item_name}, {message.month_index:02d}/{message.fiscal_year} = {message.amount:,.2f}",
-        )
-
-    return jsonify({"ok": True, "recorded": recorded}), 200
+    return _route_message(chat_id, telegram_message, update_id)
 
 @app.route('/')
 @app.route('/book-now', methods=['GET', 'POST'])
@@ -568,14 +1298,8 @@ def accounting_dashboard():
 
 # --- Budget Controller Route ---
 
-FINANCIAL_STRUCTURE = {
-    "Other Expenses": ["Power", "Water", "IT", "Communication", "Stationery", "Service/Maintenance", "Misc", "Other"],
-    "Promotion Expenses": ["Marketing", "Promotions", "Collaterals", "Printing/Advertising", "Travel", "Transportation"],
-    "Payroll & Pilotage": ["Pilotage", "Payroll", "Misc", "Other"],
-    "Fixed Costs": ["Rent", "Tax"]
-}
-
-MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+# FINANCIAL_STRUCTURE and MONTHS live in budget_structure.py so the web page, the
+# Telegram keyboards and the text-format validator can never drift apart.
 
 
 def calculate_budget_metrics(forecast_data, actual_data, monthly_revenue):
@@ -706,6 +1430,16 @@ def budget_controller():
         ORDER BY timestamp DESC
         LIMIT 50
     """, (fiscal_year,)).fetchall()
+
+    # Expenses logged through the Telegram button flow, newest first, so the
+    # uploaded vouchers are reachable from the budget page.
+    recent_expenses = db.execute("""
+        SELECT timestamp, line_item_name, category, amount, voucher_object
+        FROM expense_transactions
+        WHERE fiscal_year = ? AND status = 'RECORDED'
+        ORDER BY id DESC
+        LIMIT 25
+    """, (fiscal_year,)).fetchall()
     
     db.close()
     
@@ -722,7 +1456,33 @@ def budget_controller():
                          is_superadmin=is_superadmin,
                          metrics=metrics,
                          chart_max=chart_max,
+                         recent_expenses=recent_expenses,
                          last_actual_timestamp=last_actual['timestamp'] if last_actual else None)
+
+@app.route('/admin/voucher/<path:object_name>')
+@login_required
+def view_voucher(object_name):
+    """Stream a Telegram voucher from Cloud Storage.
+
+    Proxied rather than a signed URL so the bucket stays private and the runtime
+    service account needs no token-signing permission. login_required keeps the
+    receipts behind the admin session.
+    """
+    if not storage.is_valid_object_name(object_name):
+        abort(404)
+
+    try:
+        data = storage.download_voucher(object_name)
+    except storage.VoucherError as exc:
+        app.logger.warning("Voucher download failed: %s", exc)
+        abort(404)
+
+    return Response(
+        data,
+        mimetype=storage.content_type_for(object_name),
+        headers={"Cache-Control": "private, max-age=300"},
+    )
+
 
 @app.route('/admin/budget/forecast/update', methods=['POST'])
 @superadmin_required

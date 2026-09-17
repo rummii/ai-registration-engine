@@ -172,5 +172,13 @@ info "Telegram getWebhookInfo:"
 curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" \
   -w '\n  HTTP %{http_code}\n'
 echo
-echo "Done. Now send this from the allowed chat to the bot:"
+
+# Registers the blue command menu in Telegram clients, so users discover the
+# button flow instead of having to remember the typed BUDGET| format.
+info "Registering bot commands:"
+curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setMyCommands" \
+  --data-urlencode 'commands=[{"command":"expense","description":"Log an expense with buttons"},{"command":"summary","description":"This month totals"},{"command":"cancel","description":"Discard the current draft"},{"command":"help","description":"How the bot works"}]' \
+  -w '\n  HTTP %{http_code}\n'
+echo
+echo "Done. Open the bot and tap /expense, or send:"
 echo "  BUDGET|Marketing|2026|09|25000"

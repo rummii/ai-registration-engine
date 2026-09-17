@@ -227,6 +227,37 @@ def init_db():
                 detail TEXT NOT NULL
             )
         """
+        telegram_sessions_sql = """
+            CREATE TABLE IF NOT EXISTS telegram_sessions (
+                chat_id TEXT PRIMARY KEY,
+                step TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                line_item_name TEXT DEFAULT '',
+                fiscal_year INTEGER,
+                month_index INTEGER,
+                amount REAL,
+                voucher_object TEXT DEFAULT '',
+                prompt_message_id TEXT,
+                updated_at TEXT NOT NULL
+            )
+        """
+        expense_transactions_sql = """
+            CREATE TABLE IF NOT EXISTS expense_transactions (
+                id SERIAL PRIMARY KEY,
+                telegram_update_id TEXT UNIQUE,
+                timestamp TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                line_item_name TEXT NOT NULL,
+                fiscal_year INTEGER NOT NULL,
+                month_index INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                running_total REAL DEFAULT 0.0,
+                voucher_object TEXT DEFAULT '',
+                status TEXT NOT NULL,
+                detail TEXT NOT NULL
+            )
+        """
     else:
         system_users_sql = """
             CREATE TABLE IF NOT EXISTS system_users (
@@ -330,6 +361,37 @@ def init_db():
                 detail TEXT NOT NULL
             )
         """
+        telegram_sessions_sql = """
+            CREATE TABLE IF NOT EXISTS telegram_sessions (
+                chat_id TEXT PRIMARY KEY,
+                step TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                line_item_name TEXT DEFAULT '',
+                fiscal_year INTEGER,
+                month_index INTEGER,
+                amount REAL,
+                voucher_object TEXT DEFAULT '',
+                prompt_message_id TEXT,
+                updated_at TEXT NOT NULL
+            )
+        """
+        expense_transactions_sql = """
+            CREATE TABLE IF NOT EXISTS expense_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_update_id TEXT UNIQUE,
+                timestamp TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                line_item_name TEXT NOT NULL,
+                fiscal_year INTEGER NOT NULL,
+                month_index INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                running_total REAL DEFAULT 0.0,
+                voucher_object TEXT DEFAULT '',
+                status TEXT NOT NULL,
+                detail TEXT NOT NULL
+            )
+        """
 
     for statement in [
         system_users_sql,
@@ -340,6 +402,8 @@ def init_db():
         budget_actuals_cache_sql,
         forecast_audit_log_sql,
         budget_actuals_audit_log_sql,
+        telegram_sessions_sql,
+        expense_transactions_sql,
     ]:
         db.execute(statement)
 

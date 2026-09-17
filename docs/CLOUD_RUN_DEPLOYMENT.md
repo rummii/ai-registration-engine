@@ -61,6 +61,8 @@ unless `--service-account` is set):
 - `roles/secretmanager.secretAccessor` on each Secret Manager secret. The workflow
   grants this automatically for every bound secret. Without it Cloud Run rejects the
   revision with `Permission denied on secret`.
+- `roles/storage.objectAdmin` on the voucher bucket, so Telegram voucher photos can
+  be stored and streamed back. See [TELEGRAM_BOT_UI.md](TELEGRAM_BOT_UI.md).
 
 Enable the APIs once per project:
 
