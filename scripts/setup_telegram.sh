@@ -160,12 +160,26 @@ curl -sS -o /dev/null -w '  HTTP %{http_code}\n' "${SERVICE_URL}/health" \
 # Telegram stores the secret_token and sends it back as the
 # X-Telegram-Bot-Api-Secret-Token header on every delivery; app.py compares it
 # with hmac.compare_digest and rejects mismatches with 403.
+# No allowed_updates filter, deliberately. An earlier version restricted this to
+# ["message","edited_message"], which silently stopped every inline-keyboard press
+# from ever reaching the webhook: button taps arrive as callback_query, so the
+# buttons rendered but did nothing, and Telegram never reported an error. Leaving
+# it unset makes Telegram deliver every update kind, and app.py answers 200 to the
+# ones it does not handle.
 info "Registering webhook with Telegram:"
 curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
   --data-urlencode "url=${WEBHOOK_URL}" \
   --data-urlencode "secret_token=${TELEGRAM_WEBHOOK_SECRET}" \
-  --data-urlencode "allowed_updates=[\"message\",\"edited_message\"]" \
   -w '\n  HTTP %{http_code}\n'
+echo
+
+# Surface the delivery filter, because the only symptom of dropping callback_query
+# is buttons that quietly do nothing.
+info "Webhook allowed_updates (must not exclude callback_query):"
+curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" \
+  -w '\n  HTTP %{http_code}\n' \
+  | grep -o '"allowed_updates":[^]]*]' \
+  || echo '  unrestricted (all update kinds are delivered)'
 echo
 
 info "Telegram getWebhookInfo:"

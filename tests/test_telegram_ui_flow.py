@@ -453,3 +453,90 @@ def test_voucher_route_requires_login(telegram_app):
     response = client.get(f"/admin/voucher/vouchers/2026/09/{CHAT_ID}.jpg")
 
     assert response.status_code in {302, 401}, "vouchers must not be public"
+
+
+# ------------------------------------------------- update kinds and routing ----
+
+
+def post_update(client, payload):
+    return client.post("/telegram/webhook", json=payload, headers=HEADERS)
+
+
+def test_my_chat_member_is_acknowledged_not_rejected(telegram_app):
+    """Telegram must get a 200, or it retries this update forever.
+
+    A 403 here produced a retry loop that filled the logs and left updates stuck
+    in the pending queue.
+    """
+    app_module, client, calls = telegram_app
+
+    response = post_update(client, {
+        "update_id": 1,
+        "my_chat_member": {
+            "chat": {"id": int(CHAT_ID)},
+            "new_chat_member": {"status": "member"},
+        },
+    })
+
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True, "ignored": True}
+
+
+def test_update_without_a_chat_id_is_acknowledged(telegram_app):
+    app_module, client, calls = telegram_app
+
+    response = post_update(client, {"update_id": 1, "inline_query": {"id": "q"}})
+
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True, "ignored": True}
+
+
+def test_my_chat_member_from_another_chat_is_still_rejected(telegram_app):
+    app_module, client, calls = telegram_app
+
+    response = post_update(client, {
+        "update_id": 1,
+        "my_chat_member": {"chat": {"id": 999}},
+    })
+
+    assert response.status_code == 403
+
+
+def test_callback_without_a_message_falls_back_to_the_sender(telegram_app):
+    """Telegram omits callback.message for keyboards on very old messages."""
+    app_module, client, calls = telegram_app
+
+    response = post_update(client, {
+        "update_id": 1,
+        "callback_query": {
+            "id": "cb-1",
+            "data": "nav:menu",
+            "from": {"id": int(CHAT_ID)},
+        },
+    })
+
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True}
+
+
+def test_callback_with_no_chat_information_is_ignored(telegram_app):
+    app_module, client, calls = telegram_app
+
+    response = post_update(client, {
+        "update_id": 1,
+        "callback_query": {"id": "cb-1", "data": "nav:menu"},
+    })
+
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True, "ignored": True}
+
+
+def test_button_press_advances_the_flow(telegram_app):
+    """Guard the exact regression that made the buttons do nothing: a callback must
+    reach the handler, not just return 200."""
+    app_module, client, calls = telegram_app
+
+    press(client, "cat:promotion_expenses", update_id=1)
+
+    assert "Promotion Expenses" in completed_texts(calls)[-1]
+    assert session_for(app_module)["category"] == "Promotion Expenses"

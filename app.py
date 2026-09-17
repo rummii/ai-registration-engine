@@ -932,6 +932,36 @@ def _route_message(chat_id, telegram_message, update_id):
     return jsonify({"ok": True}), 200
 
 
+def _chat_id_from_update(update):
+    """Best-effort chat id for any Telegram update kind, or None.
+
+    Callbacks usually carry ``message.chat``, but Telegram omits that message for
+    keyboards attached to very old messages, in which case the sender is the
+    fallback. Update kinds such as ``my_chat_member`` have no ``message`` at all.
+    """
+    callback = update.get('callback_query')
+    if callback:
+        chat = (callback.get('message') or {}).get('chat') or {}
+        if chat.get('id') is not None:
+            return str(chat['id'])
+        sender = callback.get('from') or {}
+        if sender.get('id') is not None:
+            return str(sender['id'])
+        return None
+
+    message = update.get('message') or update.get('edited_message') or {}
+    chat = message.get('chat') or {}
+    if chat.get('id') is not None:
+        return str(chat['id'])
+
+    for key in ('my_chat_member', 'chat_member', 'chat_join_request'):
+        nested = (update.get(key) or {}).get('chat') or {}
+        if nested.get('id') is not None:
+            return str(nested['id'])
+
+    return None
+
+
 @app.route('/telegram/webhook', methods=['POST'])
 def telegram_webhook():
     if not TELEGRAM_WEBHOOK_SECRET:
@@ -945,20 +975,33 @@ def telegram_webhook():
 
     update = request.get_json(silent=True) or {}
     update_id = update.get('update_id')
+    chat_id = _chat_id_from_update(update)
+
+    if chat_id is None:
+        # Update kinds we have nothing to do with (inline queries, polls, ...).
+        # Answer 200 so Telegram stops retrying: a 403 here produced an endless
+        # retry loop that filled the logs and left updates stuck in the queue.
+        app.logger.info(
+            "Ignoring Telegram update with no chat id: %s", sorted(update.keys())
+        )
+        return jsonify({"ok": True, "ignored": True}), 200
+
+    if not _chat_is_allowed(chat_id):
+        return jsonify({"error": "Unauthorized Telegram chat."}), 403
 
     # Inline keyboard presses arrive as callback_query, not message.
     callback = update.get('callback_query')
     if callback:
-        chat_id = str(((callback.get('message') or {}).get('chat') or {}).get('id', ''))
-        if not _chat_is_allowed(chat_id):
-            return jsonify({"error": "Unauthorized Telegram chat."}), 403
         _handle_callback(chat_id, callback, update_id)
         return jsonify({"ok": True}), 200
 
     telegram_message = update.get('message') or update.get('edited_message') or {}
-    chat_id = str((telegram_message.get('chat') or {}).get('id', ''))
-    if not _chat_is_allowed(chat_id):
-        return jsonify({"error": "Unauthorized Telegram chat."}), 403
+    if not telegram_message:
+        # From the allowed chat, but not something to act on (my_chat_member, ...).
+        app.logger.info(
+            "Ignoring Telegram update from the allowed chat: %s", sorted(update.keys())
+        )
+        return jsonify({"ok": True, "ignored": True}), 200
 
     return _route_message(chat_id, telegram_message, update_id)
 

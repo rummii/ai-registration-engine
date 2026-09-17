@@ -85,6 +85,53 @@ gcloud storage buckets add-iam-policy-binding gs://aiex-registration-vouchers-22
 If the bucket is unset or the upload fails, the expense is still saved and the bot
 says the voucher was not stored. A missing photo never loses the amount.
 
+## Troubleshooting
+
+### Buttons render but tapping them does nothing
+
+This is almost always the webhook's `allowed_updates` filter. Button taps arrive as
+`callback_query` updates, and if the webhook was registered with
+`allowed_updates` set to only `["message","edited_message"]`, Telegram silently
+never delivers them: no error, no log entry, no pending update. The keyboards render
+because those are ordinary messages.
+
+Check and fix (the setup script no longer sets a filter at all):
+
+```bash
+TOKEN=$(gcloud secrets versions access latest --secret TELEGRAM_BOT_TOKEN --project <project>)
+curl -s "https://api.telegram.org/bot${TOKEN}/getWebhookInfo"   # inspect allowed_updates
+```
+
+If `allowed_updates` is present and excludes `callback_query`, re-run
+`scripts/setup_telegram.sh`, which re-registers without a filter.
+
+### Telegram reports "Wrong response from the webhook: 403"
+
+The app returned 403, which makes Telegram retry the same update forever, filling the
+logs with ~3 ms 403s and leaving `pending_update_count` above zero. There are two
+legitimate 403 paths:
+
+- `Unauthorized webhook request.` — the `X-Telegram-Bot-Api-Secret-Token` header
+  does not match `TELEGRAM_WEBHOOK_SECRET`.
+- `Unauthorized Telegram chat.` — the sender is not `TELEGRAM_ALLOWED_CHAT_ID`.
+
+Update kinds that carry no chat (inline queries, polls) and kinds we do not handle
+from the allowed chat (`my_chat_member`) now return **200 `{"ok":true,"ignored":true}`**
+precisely so Telegram stops retrying them. Only a genuinely unauthorised chat is
+rejected.
+
+### Checking what the webhook actually received
+
+```bash
+gcloud logging read \
+  'resource.type="cloud_run_revision" resource.labels.service_name="ai-registration-engine" httpRequest.requestUrl:"/telegram/webhook"' \
+  --project <project> --limit 20 --freshness=30m \
+  --format="table(timestamp,httpRequest.status,httpRequest.latency)"
+```
+
+A rejected request returns in a few milliseconds, because the check runs before any
+work. A real delivery takes tenths of a second because it calls the Telegram API.
+
 ## Line items come from one place
 
 The keyboards are generated from `FINANCIAL_STRUCTURE` in
