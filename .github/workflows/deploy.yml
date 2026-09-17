@@ -27,6 +27,8 @@ jobs:
       - name: Sync runtime secrets to Secret Manager
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: ${{ secrets.GCP_REGION }}
+          SERVICE: ${{ secrets.GCP_CLOUD_RUN_SERVICE }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           COOKIE_SECRET: ${{ secrets.COOKIE_SECRET }}
@@ -36,39 +38,113 @@ jobs:
         run: |
           set -euo pipefail
 
-          sync_secret() {
+          # Secrets the application cannot start without.
+          REQUIRED_SECRETS="DATABASE_URL SECRET_KEY COOKIE_SECRET"
+          # Optional integrations. They are only bound when a value is supplied
+          # or a version already exists, because Secret Manager rejects empty
+          # payloads and a bound-but-empty secret aborts Cloud Run startup.
+          OPTIONAL_SECRETS="TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_CHAT_ID TELEGRAM_WEBHOOK_SECRET"
+
+          # The Cloud Run runtime service account must be able to read each
+          # secret. Without this binding Cloud Run refuses to start the revision
+          # with "Permission denied on secret".
+          RUNTIME_SA="$(gcloud run services describe "${SERVICE}" \
+            --project "${PROJECT_ID}" --region "${REGION}" \
+            --format='value(spec.template.spec.serviceAccountName)' 2>/dev/null || true)"
+          if [ -z "${RUNTIME_SA}" ]; then
+            PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+            RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+          fi
+          echo "Cloud Run runtime service account: ${RUNTIME_SA}"
+
+          SECRET_SPEC=""
+
+          grant_access() {
+            NAME="$1"
+            if gcloud secrets add-iam-policy-binding "${NAME}" \
+                 --project "${PROJECT_ID}" \
+                 --member "serviceAccount:${RUNTIME_SA}" \
+                 --role "roles/secretmanager.secretAccessor" >/dev/null 2>&1; then
+              return 0
+            fi
+            if gcloud secrets get-iam-policy "${NAME}" --project "${PROJECT_ID}" --format=json \
+                 | grep -q "${RUNTIME_SA}"; then
+              echo "Runtime service account already has access to ${NAME}."
+              return 0
+            fi
+            echo "Cannot grant Secret Manager Secret Accessor on ${NAME} to ${RUNTIME_SA}." >&2
+            echo "Give the deployer account roles/secretmanager.admin (or pre-create the binding)." >&2
+            return 1
+          }
+
+          write_secret() {
             NAME="$1"
             VALUE="${!NAME}"
-            if [ -z "${VALUE}" ]; then
-              echo "GitHub Actions secret ${NAME} is empty or not configured." >&2
-              exit 1
-            fi
-
             if gcloud secrets describe "${NAME}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
               printf '%s' "${VALUE}" | gcloud secrets versions add "${NAME}" --data-file=- --project "${PROJECT_ID}" >/dev/null
+              echo "Added a new version of ${NAME}."
             else
               printf '%s' "${VALUE}" | gcloud secrets create "${NAME}" --data-file=- --replication-policy=automatic --project "${PROJECT_ID}" >/dev/null
+              echo "Created secret ${NAME}."
             fi
           }
 
-          for SECRET in DATABASE_URL SECRET_KEY COOKIE_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_CHAT_ID TELEGRAM_WEBHOOK_SECRET
-          do
-            sync_secret "${SECRET}"
+          bind_secret() {
+            NAME="$1"
+            grant_access "${NAME}"
+            if [ -z "${SECRET_SPEC}" ]; then
+              SECRET_SPEC="${NAME}=${NAME}:latest"
+            else
+              SECRET_SPEC="${SECRET_SPEC},${NAME}=${NAME}:latest"
+            fi
+          }
+
+          for SECRET in ${REQUIRED_SECRETS}; do
+            VALUE="${!SECRET}"
+            if [ -z "${VALUE}" ]; then
+              echo "GitHub Actions secret ${SECRET} is empty or not configured." >&2
+              exit 1
+            fi
+            write_secret "${SECRET}"
+            bind_secret "${SECRET}"
           done
+
+          for SECRET in ${OPTIONAL_SECRETS}; do
+            VALUE="${!SECRET}"
+            if [ -n "${VALUE}" ]; then
+              write_secret "${SECRET}"
+              bind_secret "${SECRET}"
+            elif gcloud secrets describe "${SECRET}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+              bind_secret "${SECRET}"
+            else
+              echo "Skipping optional secret ${SECRET} (not configured)."
+            fi
+          done
+
+          echo "SECRET_SPEC=${SECRET_SPEC}" >> "${GITHUB_ENV}"
+          echo "Runtime secrets synchronized: ${SECRET_SPEC}"
 
       - name: Verify Cloud Run secrets exist
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          for SECRET in DATABASE_URL SECRET_KEY COOKIE_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_CHAT_ID TELEGRAM_WEBHOOK_SECRET
-          do
-            if ! gcloud secrets describe "${SECRET}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
-              echo "Missing Secret Manager secret: ${SECRET}" >&2
+
+          if [ -z "${SECRET_SPEC}" ]; then
+            echo "No runtime secrets were bound; refusing to deploy." >&2
+            exit 1
+          fi
+
+          # gcloud secrets describe succeeds for a secret with zero versions,
+          # which would later fail the deploy. Check a usable version exists.
+          for BINDING in $(printf '%s' "${SECRET_SPEC}" | tr ',' '\n'); do
+            NAME="${BINDING%%=*}"
+            if ! gcloud secrets versions describe latest --secret "${NAME}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+              echo "Secret ${NAME} has no 'latest' version in Secret Manager." >&2
               exit 1
             fi
           done
-          echo "All required Secret Manager secrets exist."
+          echo "All bound Secret Manager secrets have a latest version."
 
       - name: Build and push container
         env:
@@ -94,4 +170,4 @@ jobs:
             --platform managed \
             --port 8080 \
             --allow-unauthenticated \
-            --set-secrets "DATABASE_URL=DATABASE_URL:latest,SECRET_KEY=SECRET_KEY:latest,COOKIE_SECRET=COOKIE_SECRET:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,TELEGRAM_ALLOWED_CHAT_ID=TELEGRAM_ALLOWED_CHAT_ID:latest,TELEGRAM_WEBHOOK_SECRET=TELEGRAM_WEBHOOK_SECRET:latest"
+            --set-secrets "${SECRET_SPEC}"

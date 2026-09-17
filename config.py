@@ -5,13 +5,27 @@ load_dotenv()
 load_dotenv('.env.local')
 
 
+# Cloud Run always sets K_SERVICE. FLASK_ENV covers other production hosts.
+IS_PRODUCTION = bool(os.environ.get("K_SERVICE")) or os.environ.get("FLASK_ENV") == "production"
+
+
 def _secret(name, local_fallback):
 	value = os.environ.get(name)
 	if value:
 		return value
-	if os.environ.get("K_SERVICE") or os.environ.get("FLASK_ENV") == "production":
+	if IS_PRODUCTION:
 		raise RuntimeError(f"{name} must be configured in production.")
 	return local_fallback
+
+
+def _required(name):
+	"""Return a required variable, raising in production when it is missing."""
+	value = os.environ.get(name)
+	if value:
+		return value
+	if IS_PRODUCTION:
+		raise RuntimeError(f"{name} must be configured in production.")
+	return None
 
 
 # Cookie signing secret (HMAC)
@@ -20,8 +34,9 @@ COOKIE_SECRET = _secret("COOKIE_SECRET", "local-cookie-secret-change-me")
 # Flask secret key
 SECRET_KEY = _secret("SECRET_KEY", "local-secret-key-change-me")
 
-# Database configuration
-DATABASE_URL = os.environ.get("DATABASE_URL")
+# Database configuration. Required in production so the app never silently
+# falls back to an ephemeral local SQLite file on Cloud Run.
+DATABASE_URL = _required("DATABASE_URL")
 
 # Telegram bot integration (for notifications)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")

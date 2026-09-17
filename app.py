@@ -11,6 +11,7 @@ from functools import wraps
 from config import (
     SECRET_KEY,
     COOKIE_SECRET,
+    IS_PRODUCTION,
     MAX_CONTENT_LENGTH,
     BRUTE_FORCE_LIMIT,
     LOCKOUT_MINUTES,
@@ -195,7 +196,11 @@ def _record_budget_actual(message, *, chat_id, telegram_update_id, telegram_mess
 
 @app.route('/telegram/webhook', methods=['POST'])
 def telegram_webhook():
-    if TELEGRAM_WEBHOOK_SECRET:
+    if not TELEGRAM_WEBHOOK_SECRET:
+        # Fail closed in production: never accept unauthenticated updates.
+        if IS_PRODUCTION:
+            return jsonify({"error": "Webhook secret is not configured."}), 403
+    else:
         supplied_secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token', '')
         if not hmac.compare_digest(supplied_secret, TELEGRAM_WEBHOOK_SECRET):
             return jsonify({"error": "Unauthorized webhook request."}), 403

@@ -3,7 +3,7 @@ import hashlib
 import os
 import re
 
-from config import DATABASE_URL
+from config import DATABASE_URL, IS_PRODUCTION
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "registration.db")
@@ -107,6 +107,12 @@ def get_db():
         conn = psycopg2.connect(DATABASE_URL)
         conn.cursor_factory = RealDictCursor
         return DBAdapter(conn, postgres=True)
+
+    if IS_PRODUCTION:
+        raise RuntimeError(
+            "DATABASE_URL must be a PostgreSQL connection string in production; "
+            "refusing to fall back to a local SQLite file."
+        )
 
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
